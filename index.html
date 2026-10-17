@@ -27,13 +27,14 @@
 
       <div class="engine" role="radiogroup" aria-label="구조화 엔진">
         <label class="seg"><input type="radio" name="engine" value="rule" checked><span>규칙 엔진 <small>키 불필요 · 즉시</small></span></label>
-        <label class="seg"><input type="radio" name="engine" value="llm"><span>LLM <small>Anthropic API 키 필요</small></span></label>
+        <label class="seg"><input type="radio" name="engine" value="llm" id="engine-llm"><span><span id="llm-label">LLM</span> <small id="llm-sub">Anthropic API 키 필요</small></span></label>
       </div>
       <div id="llm-opts" class="llm-opts" hidden>
         <label>API 키 <input type="password" id="api-key" autocomplete="off" placeholder="sk-ant-..."></label>
         <label>모델 <input type="text" id="model" value="claude-opus-5-5"></label>
         <p class="hint">키는 저장되지 않고, 이 브라우저에서 Anthropic API로만 전송됩니다. 주문 1건당 호출 1회, 전체 병렬.</p>
       </div>
+      <p id="claude-note" class="hint" hidden>보고 있는 사람의 claude.ai 계정으로 Claude를 호출합니다. 첫 호출 때 허용 여부를 묻고, 주문 1건당 1회씩 2건씩 처리합니다.</p>
 
       <div class="actions">
         <button type="button" class="primary" id="run">처리하기</button>

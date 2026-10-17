@@ -20,6 +20,10 @@ Branch: 이 브랜치, 폴더 `/ (root)` → Save. 1~2분 뒤 `https://<사용�
 **로컬에서 보기**: 저장소 폴더에서 `python3 -m http.server` → http://localhost:8000
 (index.html 을 더블클릭으로 열면 데이터 파일을 못 읽습니다)
 
+**claude.ai 링크 버전**: `python3 web/build_artifact.py <출력.html>` 로 단일 HTML을 만들어 Artifact로 게시합니다
+(capabilities: `sample`, `downloads`). 이 버전은 API 키 없이 **보는 사람의 claude.ai 계정**으로 Claude를 호출하고
+(주문 1건당 1회, 2건씩 동시), 파일은 claude.ai 저장 확인창으로 내려받습니다. `app.js` 가 `window.claude` 유무로 두 환경을 구분합니다.
+
 웹 버전 로직(`web/core.js`)은 `ordernote/*.py` 를 그대로 옮긴 것이고, `node web/eval.test.cjs` 로 같은 정답셋을 검증합니다.
 라이브러리(Anthropic SDK 번들, ExcelJS)는 CDN 없이 동작하도록 `web/vendor/` 에 포함했습니다.
 

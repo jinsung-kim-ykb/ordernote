@@ -52,7 +52,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 var(--font); }
-.wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+.wrap { max-width: 1100px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
 
@@ -72,7 +72,7 @@ textarea { width: 100%; min-height: 260px; resize: vertical; padding: 12px; bord
 .engine { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .seg { flex: 1 1 200px; cursor: pointer; }
 .seg input { position: absolute; opacity: 0; }
-.seg span { display: block; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-weight: 600; }
+.seg > span { display: block; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-weight: 600; }
 .seg small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
 .seg input:checked + span { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }

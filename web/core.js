@@ -380,20 +380,25 @@
         return { ext: await extractor.extract(order), err: "" };
       } catch (e) {
         err = `${e.name || "Error"}: ${e.message}`.slice(0, 200);
+        if (e && e.retry === false) break; // 재시도해도 소용없는 오류(권한 거부·호출 한도 등)
       }
     }
     return { ext: null, err };
   }
 
-  async function run({ ordersText, catalog, history, extractor, onProgress }) {
+  async function run({ ordersText, catalog, history, extractor, onProgress, concurrency = Infinity }) {
     const t0 = performance.now();
     const orders = parseOrders(ordersText);
-    let done = 0;
-    const results = await Promise.all(orders.map(async (o) => {
-      const r = await structure(extractor, o);
-      onProgress && onProgress(++done, orders.length);
-      return r;
-    }));
+    let done = 0, next = 0;
+    const results = new Array(orders.length);
+    const worker = async () => {
+      while (next < orders.length) {
+        const i = next++;
+        results[i] = await structure(extractor, orders[i]);
+        onProgress && onProgress(++done, orders.length);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, orders.length) }, worker));
     const tStruct = performance.now() - t0;
     const resolved = [];
     orders.forEach((order, i) => {
