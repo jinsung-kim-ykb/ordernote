@@ -1,10 +1,29 @@
 # 오더노트 데모 — 카톡 주문 → 배송표 자동화
 
 식당 사장님이 카톡으로 보낸 비정형 주문 텍스트를 구조화해서
-**배송표 엑셀 · 거래처 확인서 · 확인큐**를 한 번에 만드는 CLI 데모입니다.
+**배송표 엑셀 · 거래처 확인서 · 확인큐**를 한 번에 만드는 데모입니다 (웹 + CLI).
 외부 연동(카카오·ERP·DB)은 없습니다.
 
-## 빠른 시작
+## 웹 데모 (GitHub Pages)
+
+`index.html` + `web/` 는 서버 없이 브라우저에서 도는 정적 사이트입니다.
+주문 텍스트를 붙여넣고 **처리하기** → 결과 확인 → 엑셀/CSV/확인서 다운로드.
+
+- **규칙 엔진**: 키 없이 바로 동작
+- **LLM**: 화면에 Anthropic API 키 입력 (키는 저장되지 않고 브라우저에서 API로만 전송)
+- 샘플 20건 그대로 돌리면 정답셋 비교(잘못 매칭 0건) 배지가 뜹니다
+
+**Pages 켜기**: 저장소 Settings → Pages → Build and deployment → Source: *Deploy from a branch* →
+Branch: 이 브랜치, 폴더 `/ (root)` → Save. 1~2분 뒤 `https://<사용자명>.github.io/playground_youtube/` 에서 열립니다.
+(비공개 저장소는 GitHub 유료 플랜에서만 Pages 사용 가능)
+
+**로컬에서 보기**: 저장소 폴더에서 `python3 -m http.server` → http://localhost:8000
+(index.html 을 더블클릭으로 열면 데이터 파일을 못 읽습니다)
+
+웹 버전 로직(`web/core.js`)은 `ordernote/*.py` 를 그대로 옮긴 것이고, `node web/eval.test.cjs` 로 같은 정답셋을 검증합니다.
+라이브러리(Anthropic SDK 번들, ExcelJS)는 CDN 없이 동작하도록 `web/vendor/` 에 포함했습니다.
+
+## CLI 빠른 시작
 
 ```bash
 pip install -r requirements.txt
@@ -69,4 +88,4 @@ python -m ordernote --eval data/expected.json
 ## 참고
 - LLM 엔진은 Anthropic SDK의 구조화 출력(`messages.parse` + pydantic)을 쓰고, 거절 응답 시 서버 측 대체 모델(`fallbacks="default"`)로 넘어갑니다.
 - 규칙 엔진은 키 없이 데모·회귀 테스트를 돌리기 위한 폴백입니다. 처음 보는 표현에는 LLM 엔진이 더 강합니다.
-- 범위 밖: 카카오·ERP·DB 연동, 웹 UI (2주차)
+- 범위 밖: 카카오·ERP·DB 연동 (2주차)

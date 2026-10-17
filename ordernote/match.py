@@ -100,6 +100,8 @@ class Catalog:
             if s > scored.get(item.품목코드, (0, ""))[0]:
                 scored[item.품목코드] = (s, key)
         ranked = sorted(scored.items(), key=lambda kv: -kv[1][0])
+        if not ranked:
+            return MatchResult(None, reason="품목 마스터에 없음")
         top_code, (top_score, top_key) = ranked[0]
         second = ranked[1][1][0] if len(ranked) > 1 else 0
         cands = self.candidates(name)

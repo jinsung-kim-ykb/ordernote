@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>오더노트 데모</title>
+  <meta name="description" content="카톡 주문 텍스트를 붙여넣으면 배송표 엑셀·거래처 확인서·확인큐를 만들어 주는 데모">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f6feb'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="web/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <h1>오더노트 <span class="tag">데모</span></h1>
+      <p class="sub">카톡 주문 붙여넣기 → 배송표 엑셀 · 거래처 확인서 · 확인큐</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card" aria-labelledby="in-title">
+      <div class="card-head">
+        <h2 id="in-title"><span class="step">1</span> 카톡 주문</h2>
+        <button type="button" class="ghost" id="load-sample">샘플 20건 다시 불러오기</button>
+      </div>
+      <textarea id="orders" spellcheck="false" aria-describedby="fmt-hint" placeholder="불러오는 중…"></textarea>
+      <p class="hint" id="fmt-hint">형식: 첫 줄 <code>[거래처명] [YYYY-MM-DD HH:MM]</code>, 다음 줄부터 메시지, 주문 사이는 <code>---</code></p>
+
+      <div class="engine" role="radiogroup" aria-label="구조화 엔진">
+        <label class="seg"><input type="radio" name="engine" value="rule" checked><span>규칙 엔진 <small>키 불필요 · 즉시</small></span></label>
+        <label class="seg"><input type="radio" name="engine" value="llm"><span>LLM <small>Anthropic API 키 필요</small></span></label>
+      </div>
+      <div id="llm-opts" class="llm-opts" hidden>
+        <label>API 키 <input type="password" id="api-key" autocomplete="off" placeholder="sk-ant-..."></label>
+        <label>모델 <input type="text" id="model" value="claude-opus-5-5"></label>
+        <p class="hint">키는 저장되지 않고, 이 브라우저에서 Anthropic API로만 전송됩니다. 주문 1건당 호출 1회, 전체 병렬.</p>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="primary" id="run">처리하기</button>
+        <span id="progress" class="progress" aria-live="polite"></span>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="results" hidden aria-labelledby="out-title">
+      <h2 id="out-title" class="sr-only">처리 결과</h2>
+      <div class="kpis">
+        <div class="kpi"><span class="label">총 주문</span><span class="value" id="k-orders"></span><span class="note" id="k-orders-note"></span></div>
+        <div class="kpi"><span class="label">자동 처리율</span><span class="value" id="k-auto"></span><span class="note" id="k-auto-note"></span></div>
+        <div class="kpi warn"><span class="label">확인필요</span><span class="value" id="k-pending"></span><span class="note" id="k-pending-note"></span></div>
+        <div class="kpi"><span class="label">처리 시간</span><span class="value" id="k-time"></span><span class="note" id="k-engine"></span></div>
+      </div>
+      <p id="eval" class="eval" hidden></p>
+
+      <div class="downloads">
+        <button type="button" class="primary" id="dl-xlsx">배송표 엑셀 받기</button>
+        <button type="button" id="dl-csv">확인큐 CSV</button>
+        <button type="button" id="dl-txt">확인서 전체 TXT</button>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="queue" id="tab-queue">확인필요</button>
+        <button role="tab" aria-selected="false" data-tab="confirm">거래처 확인서</button>
+        <button role="tab" aria-selected="false" data-tab="picking">피킹리스트</button>
+        <button role="tab" aria-selected="false" data-tab="detail">거래처별 상세</button>
+      </div>
+      <div class="panel" data-panel="queue" role="tabpanel"></div>
+      <div class="panel" data-panel="confirm" role="tabpanel" hidden></div>
+      <div class="panel" data-panel="picking" role="tabpanel" hidden></div>
+      <div class="panel" data-panel="detail" role="tabpanel" hidden></div>
+    </section>
+  </main>
+
+  <footer class="wrap foot">
+    <span id="data-info"></span> · 상호·데이터는 모두 가상입니다 · 외부 연동(카카오·ERP) 없음
+  </footer>
+
+  <script src="web/core.js"></script>
+  <script type="module" src="web/app.js"></script>
+</body>
+</html>
