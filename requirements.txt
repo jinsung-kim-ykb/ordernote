@@ -1,0 +1,4 @@
+openpyxl>=3.1
+pydantic>=2.7
+rapidfuzz>=3.0
+anthropic>=1.0
