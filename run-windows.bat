@@ -15,7 +15,7 @@ echo.
 if not exist "requirements.txt" (
   echo This file must be run from the EXTRACTED folder, not from inside the ZIP.
   echo Right-click the downloaded ZIP, choose "Extract All", open the new
-  echo folder (and the folder inside it with the same name), then double-click run-windows there.
+  echo folder ^(and the folder inside it with the same name^), then double-click run-windows there.
   echo.
   pause
   exit /b 1
@@ -91,7 +91,7 @@ if "%RC%"=="0" (
   echo Done. Files are in:  %CD%\output
 ) else if "%RC%"=="1" (
   echo Finished. Exit code 1 here usually means the answer-key check found differences
-  echo ^(see the "잘못 매칭" line above^); the files were still written to  %CD%\output
+  echo ^(see the "mismatch" line above^); the files were still written to  %CD%\output
 ) else (
   echo Finished with exit code %RC%. See the messages above.
 )

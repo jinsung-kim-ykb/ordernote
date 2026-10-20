@@ -12,9 +12,18 @@ from .models import Item, OrderMessage
 HEADER_RE = re.compile(r"^\[(?P<client>[^\]]+)\]\s*\[(?P<ts>[^\]]+)\]\s*$")
 
 
+def read_text_tolerant(path: Path) -> str:
+    """UTF-8(BOM 포함) 우선, 안 되면 cp949(윈도우 메모장 'ANSI')로 읽는다."""
+    raw = path.read_bytes()
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp949")
+
+
 def parse_orders(path: Path) -> list[OrderMessage]:
     orders: list[OrderMessage] = []
-    for block in re.split(r"^---\s*$", path.read_text(encoding="utf-8"), flags=re.M):
+    for block in re.split(r"^---\s*$", read_text_tolerant(path), flags=re.M):
         lines = [l for l in block.strip().splitlines() if l.strip()]
         if not lines:
             continue

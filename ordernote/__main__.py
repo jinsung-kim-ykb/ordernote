@@ -37,6 +37,9 @@ def run(args) -> int:
     with ThreadPoolExecutor(max_workers=min(20, len(orders))) as pool:
         results = list(pool.map(lambda o: structure(extractor, o), orders))
     t_struct = time.perf_counter() - t1
+    if orders and all(ext is None for ext, _ in results):
+        print(f"\n!!! 주문 {len(orders)}건 모두 구조화 실패. 첫 오류: {results[0][1]}")
+        print("!!! LLM 엔진이면 API 키·크레딧·모델명을 확인하세요. 아래 결과는 전부 '확인필요'로 나갑니다.")
 
     resolved: list[ResolvedLine] = []
     for order, (ext, err) in zip(orders, results):
