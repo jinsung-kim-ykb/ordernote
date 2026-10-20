@@ -26,7 +26,9 @@ function memStorage() {
   assert.strictEqual(orders.length, 20);
   assert.strictEqual(orders[3].본문.split("\n").length, 5, "여러 줄 본문 유지");
   const catalog = new ON.Catalog(ws.items);
-  const run1 = await ON.runOrders({ orders, catalog, history: Store.history(ws), extractor: new ON.RuleExtractor(catalog, Store.history(ws)), cache: ws.session.extracted, resolutions: ws.session.resolutions });
+  // 규칙 엔진은 캐시하지 않으므로, 캐시 동작은 AI 흉내(cacheKey 있는 추출기)로 검증한다
+  const aiLike = (cat, hist) => Object.assign(new ON.RuleExtractor(cat, hist), { cacheKey: "ai-test" });
+  const run1 = await ON.runOrders({ orders, catalog, history: Store.history(ws), extractor: aiLike(catalog, Store.history(ws)), cache: ws.session.extracted, resolutions: ws.session.resolutions });
   const ev = ON.evaluate(run1.resolved, run1.orders, JSON.parse(sample.expected));
   assert.deepStrictEqual([ev.wrong.length, ev.missed.length, ev.pendingDiff.length], [0, 0, 0], JSON.stringify(ev));
   assert.strictEqual(run1.summary.pendingLines, 6);
@@ -49,7 +51,7 @@ function memStorage() {
   ws.session.resolutions[tteok.key] = { dismissed: true };
 
   const catalog2 = new ON.Catalog(ws.items);
-  const run2 = await ON.runOrders({ orders, catalog: catalog2, history: Store.history(ws), extractor: new ON.RuleExtractor(catalog2, Store.history(ws)), cache: ws.session.extracted, resolutions: ws.session.resolutions });
+  const run2 = await ON.runOrders({ orders, catalog: catalog2, history: Store.history(ws), extractor: aiLike(catalog2, Store.history(ws)), cache: ws.session.extracted, resolutions: ws.session.resolutions });
   assert.strictEqual(run2.summary.cachedOrders, 20, "LLM 캐시 재사용");
   assert.strictEqual(run2.summary.pendingLines, 3, "6 → 3 (확인 2 + 제외 1)");
   assert.strictEqual(run2.summary.excludedLines, 1);
@@ -60,7 +62,7 @@ function memStorage() {
   // 다음날 같은 표현 '고추' 는 별칭으로 자동 매칭된다
   assert.strictEqual(catalog2.match("고추").item.품목코드, "V012");
   // 환산 학습 반영: '고춧가루 2근' 을 새로 처리하면 1봉
-  assert.strictEqual(ON.convert(2, "근", catalog2.byCode.P006), 1);
+  assert.strictEqual(ON.convert(2, "근", catalog2.byCode.get("P006")), 1);
 
   // --- 3. 확정 → 직전 주문 갱신, 기록 추가. 다음날 '어제 거 그대로' 가 새 직전 주문을 쓴다
   const rec = Store.confirmDay(ws, run2);
@@ -70,7 +72,14 @@ function memStorage() {
   assert.strictEqual(onDal.M001, 15, "삼겹 15kg 가 직전 주문이 됨");
   assert.strictEqual(onDal.M008, 5);
   assert.ok(!ws.clients["봄내닭갈비"].직전주문.V999);
+  // 확정한 뒤 같은 배치를 다시 읽어도 '어제 거 그대로'는 확정 전의 직전 주문(샘플 history)을 가리킨다 — 오늘 주문 자신이 아니라
+  assert.strictEqual(Store.history(ws)["온달고깃집"].M001, JSON.parse(sample.history)["온달고깃집"]["품목"].M001, "확정 후에도 이전 직전 주문을 참조");
+  assert.strictEqual(ws.clients["온달고깃집"].이전주문일, JSON.parse(sample.history)["온달고깃집"]["주문일"]);
+  Store.confirmDay(ws, run2); // 같은 날 다시 확정해도 이전 주문이 밀려나지 않는다
+  assert.strictEqual(Store.history(ws)["온달고깃집"].M001, JSON.parse(sample.history)["온달고깃집"]["품목"].M001);
+  assert.ok(!Store.importJson(Store.exportJson(ws)).clients["온달고깃집"].이전주문.V999 && Store.importJson(Store.exportJson(ws)).clients["온달고깃집"].이전주문일, "백업을 거쳐도 이전 주문이 남는다");
   Store.newDay(ws);
+  assert.strictEqual(Store.history(ws)["온달고깃집"].M001, 15, "새 날에는 오늘 확정분이 직전 주문");
   const next = Kakao.toOrders(Kakao.parseMessages("[온달고깃집] [2026-10-18 20:00]\n어제 거 그대로요\n---\n").messages);
   const run3 = await ON.runOrders({ orders: next, catalog: catalog2, history: Store.history(ws), extractor: new ON.RuleExtractor(catalog2, Store.history(ws)) });
   assert.ok(run3.resolved.some((r) => r.item && r.item.품목코드 === "M008" && r.수량 === 5), "차돌 5kg 가 직전 주문에서 복사됨");
@@ -236,6 +245,74 @@ function memStorage() {
   const r3 = Store.importItemsCsv(ws3, "품목코드,품명,규격명,기본단위\nA1,대파,1단,단\nA2,\"양파, 햇\",15kg,망\n");
   assert.strictEqual(r3.added, 2);
   assert.strictEqual(ws3.items[1].품목명, "양파, 햇");
+
+  // --- 8. 검토에서 나온 것들
+  const cat4 = new ON.Catalog(ws2.items, ws2.clientAliases);
+  const rx = async (text, hist = {}) => ON.runOrders({ orders: Kakao.toOrders(Kakao.parseMessages(text).messages), catalog: cat4, history: hist, extractor: new ON.RuleExtractor(cat4, hist) });
+  // 소수점 수량이 사라지지 않는다
+  let r = await rx("[가람식당] [2026-10-20 20:00]\n삼겹살 1.5키로 양파 2망\n---\n");
+  assert.deepStrictEqual(r.resolved.map((x) => [x.item?.품목코드, x.수량]), [["M001", 1.5], ["V003", 2]]);
+  // 모르는 단위·표현은 버리지 않고 묻는다
+  r = await rx("[가람식당] [2026-10-20 20:00]\n순대 10줄 대파 2단 내일 10시 전에요\n---\n");
+  assert.ok(r.resolved.some((x) => x.status === "확인필요" && /순대 10줄/.test(ON.rawText(x))), "순대 10줄 → 확인");
+  assert.ok(!r.resolved.some((x) => /10시/.test(x.line.품목명_원문)), "시각 표현은 묻지 않음");
+  // 나중 메시지 "아까 양파 빼주세요" 는 앞 주문의 양파 줄을 묻는다
+  r = await rx("[가람식당] [2026-10-20 20:00]\n대파 3단 양파 1망\n---\n[가람식당] [2026-10-20 20:40]\n아까 양파 빼주세요\n---\n");
+  const onion = r.resolved.find((x) => x.item?.품목코드 === "V003");
+  assert.strictEqual(onion.status, "확인필요"); assert.ok(/취소\/변경/.test(onion.사유), onion.사유);
+  assert.ok(!r.resolved.some((x) => x.key.endsWith("#empty")), "취소 메시지 자체는 빈 줄로 남지 않음");
+  assert.strictEqual(r.resolved.find((x) => x.item?.품목코드 === "V001").status, "정상");
+  // 휴무 안내는 그 거래처 줄 전부를 묻는다
+  r = await rx("[가람식당] [2026-10-20 18:00]\n대파 3단\n---\n[가람식당] [2026-10-20 21:00]\n저희 내일 휴무예요 목요일에 넣어주세요\n---\n");
+  assert.ok(r.resolved.filter((x) => x.order.거래처 === "가람식당").every((x) => x.status === "확인필요"), "휴무 → 전부 확인");
+  // '지난번에 온 깻잎 상태가' 는 직전 주문 복사가 아니다
+  r = await rx("[가람식당] [2026-10-20 18:00]\n이거 지난번에 온 깻잎 상태가 이래요 ㅠㅠ\n---\n", { 가람식당: { V001: 2 } });
+  assert.ok(!r.resolved.some((x) => x.item?.품목코드 === "V001"), "직전 주문을 복사하지 않음");
+  // 확인서: 자리표시 줄 제외, 환산한 줄은 고객 표현 병기
+  const dict = ws2.items.find((i) => i.품목코드 === "V007"); dict.환산 = { 박스: 20 };
+  const cat5 = new ON.Catalog(ws2.items);
+  r = await ON.runOrders({ orders: Kakao.toOrders(Kakao.parseMessages("[가람식당] [2026-10-20 18:00]\n무 반 박스\n---\n[솔밭분식] [2026-10-20 18:10]\n(사진)\n---\n").messages), catalog: cat5, history: {}, extractor: new ON.RuleExtractor(cat5, {}) });
+  const conf = ON.confirmations(r.resolved);
+  assert.ok(conf.find((c) => c.client === "가람식당").text.includes("무 10개(0.5박스)"), conf[0].text);
+  assert.ok(!conf.find((c) => c.client === "솔밭분식").text.includes("(사진)"), "자리표시는 확인서에 안 나감");
+  assert.strictEqual(r.resolved.find((x) => x.order.거래처 === "솔밭분식").사유, "사진 주문 — 내용을 보고 직접 입력");
+  // 악의적인 백업: 숫자 자리에 글, 모르는 키, 프로토타입 키 → 전부 정규화
+  const hostile = JSON.stringify({ items: [{ 품목코드: "V001", 품목명: "대파", 단위: "단" }], clients: { 가람식당: { 주문횟수: "<img src=x onerror=alert(1)>", 직전주문: { V001: "2", __proto__: { x: 1 } } } },
+    days: [{ 납품일: "2026-10-02", 주문: "<b>", 라인: 3, 자동: 2, 확인: 1 }], settings: { beforeMinutes: "<x>", apiKey: "sk-ant-secret", rememberKey: true }, evil: 1, session: { resolutions: null, sent: { 가람식당: true } } });
+  const hw = Store.importJson(hostile);
+  assert.strictEqual(hw.clients["가람식당"].주문횟수, 0);
+  assert.strictEqual(hw.days[0].주문, 0);
+  assert.strictEqual(hw.settings.beforeMinutes, 0);
+  assert.strictEqual(hw.settings.apiKey, "", "가져온 백업의 키는 버림");
+  assert.ok(!("evil" in hw));
+  assert.deepStrictEqual(hw.session.resolutions, {});
+  assert.ok(!Object.prototype.x, "프로토타입 오염 없음");
+  // 백업에는 키가 들어가지 않는다
+  ws.settings.apiKey = "sk-ant-secret"; ws.settings.rememberKey = true;
+  assert.ok(!Store.exportJson(ws).includes("sk-ant-secret"));
+  // 거래처 이름 변경 → 담당자 결정 키 이전
+  const wsr = Store.importJson(Store.exportJson(ws));
+  wsr.session.resolutions["해오름횟집|2026-10-17 21:47#abc"] = { code: "V012", qty: 1 };
+  wsr.session.sent["해오름횟집"] = "h1";
+  Store.renameClient(wsr, "해오름횟집", "해오름 횟집(본점)");
+  assert.strictEqual(wsr.session.sent["해오름 횟집(본점)"], "h1");
+  assert.ok(Object.keys(wsr.session.resolutions).some((k) => k.startsWith("해오름 횟집(본점)|")));
+  assert.ok(!Object.keys(wsr.session.resolutions).some((k) => k.startsWith("해오름횟집|")));
+  // 오늘 날짜는 현지 기준
+  assert.strictEqual(Store.today(), (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })());
+  // 한 줄 형식, 같은 방 두 번 붙여넣기 = 방 1개
+  const one = Kakao.parseMessages("[가람식당] [2026-10-20 20:00] 대파 2단\n양파 1망\n");
+  assert.strictEqual(one.messages[0].text, "대파 2단\n양파 1망");
+  assert.strictEqual(Kakao.parseMessages(android2 + "\n" + android2.replace(/^\uFEFF/, "")).rooms, 1);
+  // 프로토타입 이름이 품목명·발신자로 들어와도 멈추지 않는다
+  r = await rx("[constructor] [2026-10-20 20:00]\nconstructor 2키로 toString 1단\n---\n");
+  assert.strictEqual(r.resolved.length, 2);
+  assert.ok(r.resolved.every((x) => x.status === "확인필요"));
+  // 수식 주입 방지
+  assert.strictEqual(ON.csvCell("=1+1"), "'=1+1"); assert.strictEqual(ON.csvCell("-1+cmd"), "'-1+cmd"); assert.strictEqual(ON.csvCell("-1.5"), "-1.5"); assert.strictEqual(ON.tsvCell("@x\ty"), "'@x y");
+  // 엉뚱한 AI 출력은 확인필요로
+  const v = ON.validateExtracted({ lines: [{ 품목명_원문: "대파\u0007", 수량: 1e308, 납품일: "9999-99-99", 확신도: 0.95 }] }).lines[0];
+  assert.strictEqual(v.수량, null); assert.strictEqual(v.납품일, null); assert.strictEqual(v.품목명_원문, "대파"); assert.ok(v.확신도 <= 0.3);
 
   console.log("store/kakao tests OK");
 })().catch((e) => { console.error(e); process.exit(1); });

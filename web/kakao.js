@@ -21,7 +21,7 @@
   const DATE_SEP = /^-{3,}\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일.*?-{3,}\s*$/;
   const DATE_ONLY = /^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일(\s*[월화수목금토일]요일)?\s*$/;
   const DATE_MARK = /^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)\s*\d{1,2}:\d{2}\s*$/; // 안드로이드 날짜 표시줄
-  const OURS_HEAD = /^\[([^\]]+)\]\s*\[(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})\]\s*$/;
+  const OURS_HEAD = /^\[([^\]]+)\]\s*\[(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})\]\s*(.*)$/;
   const ANDROID = /^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)\s*(\d{1,2}):(\d{2}),\s(.+?)\s:\s?(.*)$/;
   const ANDROID_SYS = /^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)\s*(\d{1,2}):(\d{2}),\s(.*)$/;
   const IOS = /^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(오전|오후)?\s*(\d{1,2}):(\d{2})(?::\d{2})?,\s(.+?)\s:\s?(.*)$/;
@@ -86,7 +86,8 @@
     const formats = new Set();
     let msgs = [];
     const partners = [];     // 각 방 헤더의 상대 이름(1:1 방)
-    let room = 0;            // 헤더가 나올 때마다 +1 — 여러 방을 이어 붙인 경우 구분
+    const roomIds = new Map(); // 헤더 글 → 방 번호 (같은 방을 두 번 붙여넣어도 한 방)
+    let room = 0;
     const unknown = [];
 
     if (/^"?Date"?,"?User"?,"?Message"?/i.test(src.split("\n")[0] || "")) {
@@ -112,7 +113,7 @@
         }
         if (!line.trim()) continue;
         if (/^---\s*$/.test(line)) { cur = null; continue; }
-        if ((m = line.match(OURS_HEAD))) { push(m[1], ts(m[2], m[3], m[4], m[5], m[6]), "", "ours"); oursBody = true; continue; }
+        if ((m = line.match(OURS_HEAD))) { push(m[1], ts(m[2], m[3], m[4], m[5], m[6]), m[7] || "", "ours"); oursBody = true; continue; }
         if ((m = line.match(DATE_SEP)) || (m = line.match(DATE_ONLY)) || (m = line.match(DATE_MARK))) { curDate = [m[1], m[2], m[3]]; cur = null; continue; }
         if ((m = line.match(ANDROID))) { push(m[7], ts(m[1], m[2], m[3], hour24(m[4], m[5]), m[6]), m[8], "android"); continue; }
         if ((m = line.match(IOS))) { push(m[7], ts(m[1], m[2], m[3], hour24(m[4], m[5]), m[6]), m[8], "ios"); continue; }
@@ -127,8 +128,12 @@
         }
         if ((m = line.match(HEADER))) {
           const p = (m[1] || m[3] || "").trim();
-          if (p || /^Talk_/.test(line)) room++;           // 방 제목 줄(또는 아이폰 파일명 줄)마다 새 방
-          if (p && !/,/.test(p)) partners.push(p);
+          if (p || /^Talk_/.test(line)) {                  // 방 제목 줄(또는 아이폰 파일명 줄)마다 방을 구분
+            const id = p || line.trim();
+            if (!roomIds.has(id)) roomIds.set(id, roomIds.size + 1);
+            room = roomIds.get(id);
+          }
+          if (p && !/,/.test(p) && !partners.includes(p)) partners.push(p);
           cur = null;
           continue;
         }
@@ -154,7 +159,7 @@
       seen.add(k);
       kept.push(x);
     }
-    return { messages: kept, formats: [...formats], partner: partners.length === 1 ? partners[0] : null, partners, rooms: room, duplicates };
+    return { messages: kept, formats: [...formats], partner: partners.length === 1 ? partners[0] : null, partners, rooms: roomIds.size, duplicates };
   }
 
   function senderStats(messages) {
@@ -173,7 +178,8 @@
     const lastBy = new Map(); // 발신자 → 마지막 주문 (사이에 다른 사람 메시지가 끼어도 같은 사람 것은 합친다)
     const sorted = messages.slice().sort((a, b) => minutes(a.time) - minutes(b.time));
     for (const m of sorted) {
-      if ((roles[m.sender] || "order") !== "order") continue;
+      const role = Object.prototype.hasOwnProperty.call(roles, m.sender) ? roles[m.sender] : "order"; // 'constructor' 같은 이름도 안전하게
+      if (role !== "order") continue;
       const body = m.text.trim();
       const shown = PHOTO.test(body) ? `(${body})` : body;
       const last = lastBy.get(m.sender);
