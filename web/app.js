@@ -48,11 +48,12 @@ async function fetchText(path) {
 async function loadSampleData() {
   if (state.sample) return state.sample;
   const d = CONFIG.data || {};
-  const [items, history, orders, expected] = await Promise.all([
+  const [items, history, orders, expected, defaultItems] = await Promise.all([
     d.items ?? fetchText("data/items.csv"), d.history ?? fetchText("data/history.json"),
     d.orders ?? fetchText("input/orders.txt"), d.expected ?? fetchText("data/expected.json"),
+    d.defaultItems ?? fetchText("data/items_default.csv").catch(() => null),
   ]);
-  state.sample = { items, history, orders, expected };
+  state.sample = { items, history, orders, expected, defaultItems };
   state.gold = JSON.parse(expected);
   return state.sample;
 }
@@ -1084,7 +1085,7 @@ function bind() {
   $$("#nav button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
   // 온보딩
   $("#ob-default").addEventListener("click", async () => {
-    try { startWorkspace(Store.loadDefaultItems(Store.blank(), await loadSampleData())); $("#progress").textContent = "기본 식자재 사전 50개를 불러왔습니다. 카톡 주문을 붙여넣으세요."; }
+    try { const ws = Store.loadDefaultItems(Store.blank(), await loadSampleData()); startWorkspace(ws); $("#progress").textContent = `기본 식자재 사전 ${ws.items.length}개를 불러왔습니다. 카톡 주문을 붙여넣으세요.`; }
     catch (e) { showError(`기본 사전을 불러오지 못했습니다: ${e.message}`); }
   });
   $("#ob-sample").addEventListener("click", async () => {

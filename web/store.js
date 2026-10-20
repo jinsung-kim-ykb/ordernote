@@ -349,7 +349,7 @@
 
   /** 기본 식자재 사전만으로 시작(거래처·주문 없음). */
   function loadDefaultItems(ws, sample) {
-    ws.items = ON.loadItems(sample.items).map(normalizeItem);
+    ws.items = ON.loadItems(sample.defaultItems || sample.items).map(normalizeItem);
     return ws;
   }
 

@@ -39,11 +39,12 @@ def build() -> str:
             "history": read("data/history.json"),
             "orders": read("input/orders.txt"),
             "expected": read("data/expected.json"),
+            "defaultItems": read("data/items_default.csv"),
         },
     }
     config_js = "window.ORDERNOTE_CONFIG = " + json.dumps(config, ensure_ascii=False).replace("</", "<\\/") + ";"
     return (
-        "<title>오더노트 데모</title>\n"
+        "<title>오더노트</title>\n"
         '<meta name="claude:viewport-fit-sides" content="cover">\n'
         f"<style>\n{read('web/style.css')}\n</style>\n"
         f"{body.strip()}\n"
