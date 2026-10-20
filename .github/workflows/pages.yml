@@ -1,11 +1,11 @@
 # GitHub Pages 배포: 저장소 루트를 그대로 정적 사이트로 올린다.
-# 주소: https://jinsung-kim-ykb.github.io/playground_youtube/
+# 주소: https://jinsung-kim-ykb.github.io/ordernote/
 # 저장소가 Public이어야 한다(무료 계정의 Private 저장소는 Pages를 쓸 수 없음).
 name: pages
 
 on:
   push:
-    branches: [main, claude/admiring-allen-bobzah]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

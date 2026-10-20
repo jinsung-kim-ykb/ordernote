@@ -15,14 +15,12 @@
 | 방법 | 주소 | 특징 |
 |---|---|---|
 | claude.ai 링크 | 소유자가 공유한 링크 | 설치 없음. AI 해석을 **보는 사람의 claude.ai 계정**으로 호출(키 불필요). 데모·검토용 |
-| GitHub Pages | `https://<사용자명>.github.io/playground_youtube/` | 고정 주소. 유통사에 주는 공식 주소. AI는 Anthropic API 키(선택) |
+| GitHub Pages | https://jinsung-kim-ykb.github.io/ordernote/ | 고정 주소. 유통사에 주는 공식 주소. AI는 Anthropic API 키(선택) |
 | 로컬 | 저장소 폴더에서 `python3 -m http.server` → http://localhost:8000 | 오프라인 |
 
-**Pages 켜기** (한 번만, 저장소 소유자가):
-1. 저장소를 **Public**으로 바꿉니다 (Settings → General → Danger Zone → Change visibility). 무료 계정의 Private 저장소는 Pages를 쓸 수 없습니다.
-2. Settings → Pages → Build and deployment → Source를 **GitHub Actions**로 고릅니다.
-3. Settings → Environments → `github-pages` → Deployment branches and tags → **No restriction** (기본값은 main만 허용이라 이 브랜치 배포가 막힙니다).
-4. Actions 탭 → `pages` 워크플로 → Run workflow (브랜치 `claude/admiring-allen-bobzah`). 이후에는 이 브랜치에 푸시할 때마다 자동 배포됩니다.
+**Pages 켜기** (한 번만, 저장소 소유자가): 저장소는 Public이어야 합니다(무료 계정의 Private 저장소는 Pages 불가).
+1. Settings → Pages → Build and deployment → Source를 **GitHub Actions**로 고릅니다.
+2. Actions 탭 → `pages` 워크플로 → Run workflow. 이후에는 `main`에 푸시할 때마다 자동 배포됩니다.
 `index.html`을 더블클릭으로 열면 샘플 데이터 파일을 못 읽습니다(서버로 여세요).
 
 ## 담당자의 하루 (7pm–1am)
