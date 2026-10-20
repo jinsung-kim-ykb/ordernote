@@ -48,8 +48,8 @@ def build() -> str:
         f"<style>\n{read('web/style.css')}\n</style>\n"
         f"{body.strip()}\n"
         f"<script>{config_js}</script>\n"
-        f"<script>\n{inline_safe(read('web/core.js'))}\n</script>\n"
-        f'<script type="module">\n{inline_safe(read("web/app.js"))}\n</script>\n'
+        + "".join(f"<script>\n{inline_safe(read(f'web/{m}.js'))}\n</script>\n" for m in ("core", "kakao", "store"))
+        + f'<script type="module">\n{inline_safe(read("web/app.js"))}\n</script>\n'
     )
 
 

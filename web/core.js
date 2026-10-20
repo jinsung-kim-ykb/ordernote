@@ -27,11 +27,29 @@
     return orders;
   }
 
+  /** RFC 4180 CSV → 행 배열 (따옴표 안 쉼표·줄바꿈·"" 허용) */
+  function parseCsvRows(text) {
+    const rows = [];
+    let row = [], field = "", q = false;
+    const src = text.replace(/^\uFEFF/, "");
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i];
+      if (q) {
+        if (c === '"') { if (src[i + 1] === '"') { field += '"'; i++; } else q = false; }
+        else field += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+      else if (c !== "\r") field += c;
+    }
+    if (field || row.length) { row.push(field); rows.push(row); }
+    return rows.filter((r) => r.some((c) => String(c).trim()));
+  }
+
   function loadItems(csvText) {
-    const rows = csvText.replace(/^﻿/, "").trim().split(/\r?\n/);
-    const header = rows[0].split(",");
-    return rows.slice(1).map((r) => {
-      const cols = r.split(",");
+    const rows = parseCsvRows(csvText);
+    const header = rows[0].map((h) => h.trim());
+    return rows.slice(1).map((cols) => {
       const rec = Object.fromEntries(header.map((h, i) => [h, (cols[i] || "").trim()]));
       return {
         품목코드: rec["품목코드"], 품목명: rec["품목명"], 규격: rec["규격"], 단위: rec["단위"],
@@ -110,7 +128,9 @@
   }
 
   class Catalog {
-    constructor(items) {
+    /** clientAliases: { 거래처명: { 별칭(정규화): 품목코드 } } — 전체 별칭보다 우선 */
+    constructor(items, clientAliases = {}) {
+      this.clientAliases = clientAliases;
       this.items = items;
       this.byCode = Object.fromEntries(items.map((i) => [i.품목코드, i]));
       this.exact = Object.fromEntries(items.map((i) => [norm(i.품목명), i]));
@@ -147,7 +167,13 @@
         .filter(([, s]) => s >= CANDIDATE_MIN).map(([c]) => this.byCode[c]);
     }
 
-    match(name) {
+    match(name, client = null) {
+      const ca = client && this.clientAliases[client];
+      if (ca) {
+        for (const q of new Set([norm(name), stripParticle(norm(name))])) {
+          if (ca[q] && this.byCode[ca[q]]) return { item: this.byCode[ca[q]], how: "거래처 별칭", reason: "", candidates: [] };
+        }
+      }
       const hit = this._exactOrAlias(name);
       if (hit) return hit;
       const q = stripParticle(norm(name));
@@ -185,6 +211,8 @@
   function convert(qty, unit, item) {
     unit = canonicalUnit(unit);
     if (unit == null || unit === item.단위) return qty;
+    // 담당자가 확인 큐에서 기억시킨 품목별 환산('1박스 = 10kg')이 있으면 그것을 먼저 쓴다
+    if (item.환산 && item.환산[unit] > 0) return Math.round(qty * item.환산[unit] * 1000) / 1000;
     let kg;
     if (unit === "kg") kg = qty;
     else if (unit === "g") kg = qty / 1000;
@@ -201,7 +229,7 @@
   }
 
   function resolve(order, line, catalog) {
-    const m = catalog.match(line.품목명_원문);
+    const m = catalog.match(line.품목명_원문, order.거래처);
     const base = { order, line, item: null, 수량: null, 단위: null, 후보: m.candidates.map((c) => `${c.품목코드} ${c.품목명}`) };
     if (!m.item) return { ...base, status: "확인필요", 사유: m.reason };
     const item = m.item;
@@ -213,7 +241,8 @@
         사유: `단위 환산 불가(${fmtNum(line.수량)}${line.단위}→${item.단위}, 규격 ${item.규격})` };
     }
     if (line.확신도 < CONFIDENCE_THRESHOLD) {
-      return { ...base, 수량: qty, 단위: item.단위, status: "확인필요", 사유: `확신도 낮음(${line.확신도.toFixed(2)})` };
+      const why = line.메모 && /확인$/.test(line.메모) ? line.메모 : `확신도 낮음(${line.확신도.toFixed(2)})`;
+      return { ...base, 수량: qty, 단위: item.단위, status: "확인필요", 사유: why };
     }
     return { ...base, 수량: qty, 단위: item.단위, status: "정상", 사유: m.how };
   }
@@ -223,9 +252,13 @@
   const HISTORY_CUES = /어제\s*(거|꺼|것)|평소|그대로|지난번|똑같이|늘\s*하던/;
 
   function deliveryDate(order) {
-    const days = order.본문.includes("모레") ? 2 : 1;
+    const extra = order.본문.includes("모레") ? 1 : 0;
+    if (order.납품일기본) {
+      const [y, m, d] = order.납품일기본.split("-").map(Number);
+      return new Date(Date.UTC(y, m - 1, d + extra)).toISOString().slice(0, 10);
+    }
     const t = order.수신시각;
-    return new Date(Date.UTC(t.y, t.mo - 1, t.d + days)).toISOString().slice(0, 10);
+    return new Date(Date.UTC(t.y, t.mo - 1, t.d + 1 + extra)).toISOString().slice(0, 10);
   }
 
   function historyLines(order, history, catalog) {
@@ -307,13 +340,22 @@
   }
 
   const NUM_WORDS = { 한: 1, 하나: 1, 두: 2, 둘: 2, 세: 3, 셋: 3, 석: 3, 네: 4, 넷: 4, 다섯: 5,
-    여섯: 6, 일곱: 7, 여덟: 8, 아홉: 9, 열: 10, 스무: 20 };
+    여섯: 6, 일곱: 7, 여덟: 8, 아홉: 9, 열: 10, 스무: 20, 반: 0.5 };
   const UNITS = "kg|KG|Kg|키로그램|킬로그램|키로|킬로|근|포기|포대|포|단|망|박스|상자|빡스|판|말통|통|봉지|봉|개|마리|병|팩";
   const NUM_ALT = Object.keys(NUM_WORDS).sort((a, b) => b.length - a.length).join("|");
-  const QTY_RE = new RegExp(`(?<name>[가-힣A-Za-z]+(?:\\s+[가-힣A-Za-z]+)?)\\s*(?<num>\\d+(?:\\.\\d+)?|${NUM_ALT})\\s*(?<unit>${UNITS})`, "g");
+  const QTY_RE = new RegExp(`(?<name>[가-힣A-Za-z]+(?:\\s+[가-힣A-Za-z]+)?)\\s*(?<num>\\d+(?:\\.\\d+)?|${NUM_ALT})\\s*(?<unit>${UNITS})(?<half>\\s*반(?![가-힣]))?`, "g");
   const VAGUE_RE = /좀|넉넉히|적당히|조금|많이|약간/;
+  // 앞선 주문을 고치는 말이나 휴무 통보: 자동으로 넣지 말고 담당자에게 묻는다('틀리게 넣느니 묻는다')
+  const EDIT_CUE = /취소|말고|대신|변경|바꿔|바꾸|수정/;
+  const CLOSED_CUE = /휴무|쉬어요|쉽니다|쉴게요|안\s*받|오지\s*마|배송\s*안|문\s*안\s*열/;
+  function messageCue(body) {
+    if (CLOSED_CUE.test(body)) return "휴무·배송 안내";
+    if (EDIT_CUE.test(body)) return "수정·취소 표현";
+    return null;
+  }
   const VAGUE_FULL = /^(좀|넉넉히|적당히|조금|많이|약간)$/;
   const SEGMENT_RE = /[,\n.]|그리고|근데/;
+  const CONNECTIVE = /^(말고|아니라|아니고|아니|대신|대신에|으로|로)$/;
 
   class RuleExtractor {
     constructor(catalog, history) {
@@ -332,6 +374,7 @@
       const date = deliveryDate(order);
       const memo = [...order.본문.matchAll(/\(([^)]*)\)/g)].map((m) => m[1]).join("; ") || null;
       const body = order.본문.replace(/\([^)]*\)/g, " ");
+      const cue = messageCue(body);
       const lines = new Map();
       if (HISTORY_CUES.test(body)) {
         for (const l of historyLines(order, this.history, this.catalog)) {
@@ -342,16 +385,23 @@
       for (const seg of body.split(SEGMENT_RE).map((s) => s.trim())) {
         if (!seg) continue;
         const matches = [...seg.matchAll(QTY_RE)];
+        let prevKey = null;
         for (const m of matches) {
           const name = this._name(m.groups.name);
           const num = m.groups.num;
-          const qty = /^\d/.test(num) ? parseFloat(num) : NUM_WORDS[num];
+          const qty = (/^\d/.test(num) ? parseFloat(num) : NUM_WORDS[num]) + (m.groups.half ? 0.5 : 0);
+          // "삼겹 10키로 말고 15키로": 접속어 뒤의 수량은 앞 품목의 수량을 고치는 것
+          if (CONNECTIVE.test(name) && prevKey && lines.has(prevKey)) {
+            Object.assign(lines.get(prevKey), { 수량: qty, 단위: canonicalUnit(m.groups.unit) });
+            continue;
+          }
           const item = this.catalog.lookupExact(name);
           const key = item ? item.품목코드 : name;
+          prevKey = key;
           const prev = lines.get(key);
           const lineMemo = prev && prev.메모 === HISTORY_MEMO ? `${HISTORY_MEMO}(수량 변경)` : memo;
           lines.set(key, { 품목명_원문: name, 규격: null, 수량: qty, 단위: canonicalUnit(m.groups.unit),
-            납품일: date, 메모: lineMemo, 확신도: 0.9 });
+            납품일: date, 메모: cue ? `${cue} 포함 — 확인` : lineMemo, 확신도: cue ? 0.6 : 0.9 });
         }
         if (matches.length) continue;
         if (seg.includes("빼")) {
@@ -386,39 +436,92 @@
     return { ext: null, err };
   }
 
-  async function run({ ordersText, catalog, history, extractor, onProgress, concurrency = Infinity }) {
+  function hashText(s) {
+    let h = 5381;
+    for (const ch of s) h = (Math.imul(h, 33) ^ ch.codePointAt(0)) >>> 0;
+    return h.toString(36);
+  }
+
+  /** 주문 1건을 가리키는 안정적인 키(같은 주문을 다시 처리해도 같음) — LLM 캐시·담당자 확인 저장에 쓴다. */
+  function orderKey(o) {
+    return `${o.거래처}|${o.수신시각.text}|${hashText(o.본문)}`;
+  }
+
+  /** 담당자가 확인 큐에서 내린 결정을 결과에 덮어쓴다. {code, qty} → 정상(담당자 확인), {dismissed} → 제외. */
+  function applyResolutions(resolved, resolutions, catalog) {
+    for (const r of resolved) {
+      const res = resolutions[r.key];
+      if (!res) continue;
+      if (res.dismissed) {
+        Object.assign(r, { status: "제외", 사유: "담당자 제외", resolved: true });
+        continue;
+      }
+      const item = catalog.byCode[res.code];
+      if (!item || !(res.qty > 0)) continue;
+      Object.assign(r, { item, 수량: res.qty, 단위: item.단위, status: "정상", 사유: "담당자 확인", resolved: true });
+    }
+  }
+
+  async function run({ ordersText, ...rest }) {
+    return runOrders({ orders: parseOrders(ordersText), ...rest });
+  }
+
+  /** cache: orderKey → ExtractedOrder (있으면 추출기를 부르지 않음). resolutions: lineKey → 담당자 결정. */
+  async function runOrders({ orders, catalog, history, extractor, onProgress, concurrency = Infinity, cache = null, resolutions = null }) {
     const t0 = performance.now();
-    const orders = parseOrders(ordersText);
     let done = 0, next = 0;
     const results = new Array(orders.length);
     const worker = async () => {
       while (next < orders.length) {
         const i = next++;
-        results[i] = await structure(extractor, orders[i]);
+        // 캐시 키: 주문 + 납품일 + 해석 방식 (방식을 바꾸면 다시 해석하고, 되돌리면 이전 결과를 다시 쓴다)
+        const ck = `${orderKey(orders[i])}@${orders[i].납품일기본 || ""}@${extractor.cacheKey || extractor.name}`;
+        if (cache && cache[ck]) {
+          results[i] = { ext: cache[ck], err: "", cached: true };
+        } else {
+          results[i] = await structure(extractor, orders[i]);
+          if (cache && results[i].ext) cache[ck] = results[i].ext;
+        }
         onProgress && onProgress(++done, orders.length);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(concurrency, orders.length) }, worker));
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, orders.length)) }, worker));
     const tStruct = performance.now() - t0;
     const resolved = [];
     orders.forEach((order, i) => {
+      const key = orderKey(order);
       const { ext, err } = results[i];
       const blank = { 규격: null, 수량: null, 단위: null, 납품일: null, 확신도: 0 };
       if (!ext) {
         const line = { ...blank, 품목명_원문: order.본문.split("\n")[0], 메모: err };
-        resolved.push({ order, line, item: null, 수량: null, 단위: null, 후보: [], status: "확인필요", 사유: "구조화 실패(재시도 1회 후)" });
+        resolved.push({ key: `${key}#fail`, order, line, item: null, 수량: null, 단위: null, 후보: [], status: "확인필요", 사유: "구조화 실패(재시도 1회 후)" });
         return;
       }
       if (!ext.lines.length) {
         const line = { ...blank, 품목명_원문: "(품목 없음)", 메모: null };
-        resolved.push({ order, line, item: null, 수량: null, 단위: null, 후보: [], status: "확인필요", 사유: "주문 품목을 찾지 못함" });
+        resolved.push({ key: `${key}#empty`, order, line, item: null, 수량: null, 단위: null, 후보: [], status: "확인필요", 사유: "주문 품목을 찾지 못함" });
       }
-      for (const l of ext.lines) resolved.push(resolve(order, l, catalog));
+      ext.lines.forEach((l, j) => resolved.push({ key: `${key}#${j}`, ...resolve(order, l, catalog) }));
     });
+    if (resolutions) {
+      applyResolutions(resolved, resolutions, catalog);
+      // 담당자가 주문에 직접 추가한 품목: 키 "<orderKey>#add-<n>"
+      const byKey = new Map(orders.map((o) => [orderKey(o), o]));
+      for (const [k, res] of Object.entries(resolutions)) {
+        const m = k.match(/^(.*)#add-\d+$/);
+        if (!m || !byKey.has(m[1]) || res.dismissed) continue;
+        const item = catalog.byCode[res.code];
+        if (!item || !(res.qty > 0)) continue;
+        const order = byKey.get(m[1]);
+        const line = { 품목명_원문: res.원문 || "(담당자 추가)", 규격: null, 수량: res.qty, 단위: item.단위, 납품일: deliveryDate(order), 메모: "담당자 추가", 확신도: 1 };
+        resolved.push({ key: k, order, line, item, 수량: res.qty, 단위: item.단위, 후보: [], status: "정상", 사유: "담당자 추가", resolved: true });
+      }
+    }
     const pendingOrders = new Set(resolved.filter((r) => r.status === "확인필요").map((r) => r.order.순번));
     const dates = {};
     for (const r of resolved) if (r.line.납품일) dates[r.line.납품일] = (dates[r.line.납품일] || 0) + 1;
     const mainDate = Object.entries(dates).sort((a, b) => b[1] - a[1])[0]?.[0] || new Date().toISOString().slice(0, 10);
+    const count = (st) => resolved.filter((r) => r.status === st).length;
     return {
       orders, resolved, mainDate,
       summary: {
@@ -428,8 +531,12 @@
         clients: new Set(orders.map((o) => o.거래처)).size,
         autoOrders: orders.length - pendingOrders.size,
         pendingOrders: pendingOrders.size,
-        okLines: resolved.filter((r) => r.status === "정상").length,
-        pendingLines: resolved.filter((r) => r.status === "확인필요").length,
+        okLines: count("정상"),
+        autoLines: resolved.filter((r) => r.status === "정상" && !r.resolved).length,
+        resolvedLines: resolved.filter((r) => r.resolved && r.status === "정상").length,
+        pendingLines: count("확인필요"),
+        excludedLines: count("제외"),
+        cachedOrders: results.filter((r) => r && r.cached).length,
         seconds: (performance.now() - t0) / 1000,
         structSeconds: tStruct / 1000,
       },
@@ -453,7 +560,13 @@
   }
 
   // ------------------------------------------------------------ export.py (텍스트 출력)
-  const DISTRIBUTOR = "새벽들유통";
+  let DISTRIBUTOR = "새벽들유통";
+  let FOOTER = "변경은 이 채널로 회신 주세요.";
+  /** 확인서 머리글의 유통사 이름과 꼬리말. */
+  function setDistributor(name, footer) {
+    if (name && String(name).trim()) DISTRIBUTOR = String(name).trim();
+    if (footer != null) FOOTER = String(footer).trim();
+  }
 
   function rawText(r) {
     const l = r.line;
@@ -493,7 +606,7 @@
         ? `${client}님, ${when} 납품 주문 확인드립니다. ` + [...ok].map(([c, q]) => fmtItem(items[c], q)).join(", ")
         : `${client}님, 주문 잘 받았습니다.`);
       if (pending.length) text.push(`※ 확인 중: ${pending.join(", ")} — 품목/수량 확인 후 다시 연락드리겠습니다.`);
-      text.push("변경은 이 채널로 회신 주세요.");
+      if (FOOTER) text.push(FOOTER);
       out.push({ client, text: text.join("\n"), pending: pending.length });
     }
     return out;
@@ -513,7 +626,8 @@
   }
 
   function csvCell(v) {
-    const s = v == null ? "" : String(v);
+    let s = v == null ? "" : String(v);
+    if (/^[=+@]|^-(?![\d.])/.test(s)) s = "'" + s; // 엑셀 수식 주입 방지
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }
 
@@ -527,9 +641,10 @@
   }
 
   const api = {
-    parseOrders, loadItems, loadHistory, Catalog, RuleExtractor, resolve, convert, run, evaluate,
+    parseOrders, loadItems, loadHistory, Catalog, RuleExtractor, resolve, convert, run, runOrders, orderKey, applyResolutions, evaluate,
+    normName: norm, canonicalUnit, hashText, messageCue, parseCsvRows,
     confirmations, pickingList, queueCsv, rawText, fmtNum, groupBy, deliveryDate, llmPrompt, validateExtracted,
-    SYSTEM_PROMPT, ORDER_SCHEMA, DISTRIBUTOR,
+    SYSTEM_PROMPT, ORDER_SCHEMA, setDistributor,
   };
   root.OrderNote = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

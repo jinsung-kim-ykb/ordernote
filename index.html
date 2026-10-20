@@ -2,81 +2,247 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>오더노트 데모</title>
-  <meta name="description" content="카톡 주문 텍스트를 붙여넣으면 배송표 엑셀·거래처 확인서·확인큐를 만들어 주는 데모">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>오더노트</title>
+  <meta name="description" content="식당 카톡 주문을 붙여넣으면 품목 사전으로 해석해 배송표·확인서·확인 큐를 만드는 식자재 유통사 주문 입력 도구">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f6feb'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="web/style.css">
 </head>
 <body>
   <header class="top">
-    <div class="wrap">
-      <h1>오더노트 <span class="tag">데모</span></h1>
-      <p class="sub">카톡 주문 붙여넣기 → 배송표 엑셀 · 거래처 확인서 · 확인큐</p>
+    <div class="wrap bar">
+      <h1 class="brand">오더노트 <span class="ws" id="ws-name"></span></h1>
+      <nav class="nav" aria-label="화면" id="nav">
+        <button type="button" data-view="inbox">주문 처리</button>
+        <button type="button" data-view="items">품목 사전 <span class="count" id="nav-items"></span></button>
+        <button type="button" data-view="clients">거래처 <span class="count" id="nav-clients"></span></button>
+        <button type="button" data-view="history">기록</button>
+        <button type="button" data-view="settings">설정</button>
+      </nav>
     </div>
   </header>
 
   <main class="wrap">
-    <section class="card" aria-labelledby="in-title">
-      <div class="card-head">
-        <h2 id="in-title"><span class="step">1</span> 카톡 주문</h2>
-        <button type="button" class="ghost" id="load-sample">샘플 20건 다시 불러오기</button>
-      </div>
-      <textarea id="orders" spellcheck="false" aria-describedby="fmt-hint" placeholder="불러오는 중…"></textarea>
-      <p class="hint" id="fmt-hint">형식: 첫 줄 <code>[거래처명] [YYYY-MM-DD HH:MM]</code>, 다음 줄부터 메시지, 주문 사이는 <code>---</code></p>
+    <div id="sample-banner" class="banner" hidden>
+      <span><strong>샘플 모드</strong> — 가상의 품목·거래처·주문으로 둘러보는 중입니다. 기록은 실제 통계와 섞이지 않습니다.</span>
+      <button type="button" class="small" id="leave-sample">샘플 지우고 우리 주문 시작</button>
+    </div>
+    <div id="backup-banner" class="banner warn" hidden>
+      <span id="backup-banner-text"></span>
+      <button type="button" class="small" id="backup-now">지금 백업 내려받기</button>
+    </div>
+    <p id="error" class="error" role="alert" hidden></p>
 
-      <div class="engine" role="radiogroup" aria-label="구조화 엔진">
-        <label class="seg"><input type="radio" name="engine" value="rule" checked><span>규칙 엔진 <small>키 불필요 · 즉시</small></span></label>
-        <label class="seg"><input type="radio" name="engine" value="llm" id="engine-llm"><span><span id="llm-label">LLM</span> <small id="llm-sub">Anthropic API 키 필요</small></span></label>
+    <!-- ===== 온보딩 ===== -->
+    <section id="view-onboard" class="card onboard" hidden>
+      <h2>오더노트 시작하기</h2>
+      <p>식당이 카톡으로 보낸 주문을 붙여넣으면 품목 사전으로 해석해서 배송표 엑셀·거래처 확인서·확인 큐를 만듭니다. 설치나 가입은 없습니다.</p>
+      <label class="field"><span>유통사 이름 (확인서에 들어갑니다)</span><input type="text" id="ob-name" placeholder="예: 새벽들유통" autocomplete="organization"></label>
+      <div class="choice">
+        <button type="button" id="ob-default"><strong>우리 주문 시작 (기본 식자재 사전 내장)</strong><span>채소·육류·공산품 50개 품목과 흔한 별칭이 들어 있습니다. 첫날은 확인 큐가 많고, 고를수록 줄어듭니다.</span></button>
+        <button type="button" id="ob-csv"><strong>내 품목 사전 CSV로 시작</strong><span>품목코드·품목명·규격·단위 열이 있는 CSV (이카운트 품목 내보내기 그대로도 됩니다).</span></button>
+        <button type="button" id="ob-sample"><strong>샘플로 둘러보기</strong><span>가상 거래처 5곳·주문 20건으로 흐름만 봅니다. 언제든 샘플을 지우고 시작할 수 있어요.</span></button>
+        <button type="button" id="ob-import"><strong>백업 파일 가져오기</strong><span>다른 PC나 폰의 오더노트에서 내보낸 JSON 백업</span></button>
       </div>
-      <div id="llm-opts" class="llm-opts" hidden>
-        <label>API 키 <input type="password" id="api-key" autocomplete="off" placeholder="sk-ant-..."></label>
-        <label>모델 <input type="text" id="model" value="claude-opus-5-5"></label>
-        <p class="hint">키는 저장되지 않고, 이 브라우저에서 Anthropic API로만 전송됩니다. 주문 1건당 호출 1회, 전체 병렬.</p>
-      </div>
-      <p id="claude-note" class="hint" hidden>보고 있는 사람의 claude.ai 계정으로 Claude를 호출합니다. 첫 호출 때 허용 여부를 묻고, 주문 1건당 1회씩 2건씩 처리합니다.</p>
-
-      <div class="actions">
-        <button type="button" class="primary" id="run">처리하기</button>
-        <span id="progress" class="progress" aria-live="polite"></span>
-      </div>
-      <p id="error" class="error" role="alert" hidden></p>
+      <input type="file" id="ob-csv-file" accept=".csv,text/csv" hidden>
+      <input type="file" id="ob-import-file" accept=".json,application/json" hidden>
+      <p class="hint">데이터는 <strong>이 주소·이 브라우저</strong>에만 저장됩니다. 다른 PC나 폰에서는 보이지 않으니 설정 → 백업으로 옮기세요.</p>
     </section>
 
-    <section id="results" hidden aria-labelledby="out-title">
-      <h2 id="out-title" class="sr-only">처리 결과</h2>
-      <div class="kpis">
-        <div class="kpi"><span class="label">총 주문</span><span class="value" id="k-orders"></span><span class="note" id="k-orders-note"></span></div>
-        <div class="kpi"><span class="label">자동 처리율</span><span class="value" id="k-auto"></span><span class="note" id="k-auto-note"></span></div>
-        <div class="kpi warn"><span class="label">확인필요</span><span class="value" id="k-pending"></span><span class="note" id="k-pending-note"></span></div>
-        <div class="kpi"><span class="label">처리 시간</span><span class="value" id="k-time"></span><span class="note" id="k-engine"></span></div>
-      </div>
-      <p id="eval" class="eval" hidden></p>
+    <!-- ===== 주문 처리 ===== -->
+    <section id="view-inbox" hidden>
+      <section class="card" aria-labelledby="in-title">
+        <div class="card-head">
+          <h2 id="in-title"><span class="step">1</span> 카톡 주문 붙여넣기</h2>
+          <div class="row">
+            <button type="button" class="ghost small" id="load-sample-orders">샘플 주문 20건</button>
+            <button type="button" class="ghost small" id="clear-orders">비우기</button>
+          </div>
+        </div>
+        <textarea id="orders" spellcheck="false" aria-describedby="fmt-hint" placeholder="카카오톡 대화방 → 메뉴 → 대화 내보내기(텍스트)로 저장한 내용, 또는 PC 카톡에서 메시지를 선택해 복사한 내용을 여기에 붙여넣으세요. 방마다 이어서 붙여넣어도 됩니다."></textarea>
+        <p class="hint" id="fmt-hint">카톡 안드로이드·아이폰·PC·맥 내보내기, 메시지 복사본, <code>[거래처명] [YYYY-MM-DD HH:MM]</code> 형식을 자동으로 알아봅니다. 같은 방을 다시 붙여넣어도 중복 메시지는 빠집니다.</p>
+        <p class="hint" id="parse-status" aria-live="polite"></p>
+        <div class="senders" id="senders"></div>
+        <div class="engine-line">
+          <label class="field"><span>납품일</span><input type="date" id="delivery-date"></label>
+          <label class="field"><span>해석 방식</span><span id="engine-label" class="chip"></span></label>
+          <span class="hint" id="engine-hint"></span>
+        </div>
+        <div class="actions">
+          <button type="button" class="primary" id="run">처리하기</button>
+          <span id="progress" class="progress" aria-live="polite"></span>
+        </div>
+      </section>
 
-      <div class="downloads">
-        <button type="button" class="primary" id="dl-xlsx">배송표 엑셀 받기</button>
-        <button type="button" id="dl-csv">확인큐 CSV</button>
-        <button type="button" id="dl-txt">확인서 전체 TXT</button>
-      </div>
+      <section id="results" hidden aria-labelledby="out-title">
+        <h2 id="out-title" class="sr-only">처리 결과</h2>
+        <div class="kpis">
+          <div class="kpi"><span class="label">주문</span><span class="value" id="k-orders"></span><span class="note" id="k-orders-note"></span></div>
+          <div class="kpi" id="k-auto-tile"><span class="label">자동 처리율</span><span class="value" id="k-auto"></span><span class="note" id="k-auto-note"></span></div>
+          <div class="kpi warn" id="k-pending-tile"><span class="label">확인 큐</span><span class="value" id="k-pending"></span><span class="note" id="k-pending-note"></span></div>
+          <div class="kpi"><span class="label">담당자 확인</span><span class="value" id="k-resolved"></span><span class="note" id="k-resolved-note"></span></div>
+          <div class="kpi"><span class="label">처리 시간</span><span class="value" id="k-time"></span><span class="note" id="k-engine"></span></div>
+        </div>
+        <p id="eval" class="eval" hidden></p>
 
-      <div class="tabs" role="tablist">
-        <button role="tab" aria-selected="true" data-tab="queue" id="tab-queue">확인필요</button>
-        <button role="tab" aria-selected="false" data-tab="confirm">거래처 확인서</button>
-        <button role="tab" aria-selected="false" data-tab="picking">피킹리스트</button>
-        <button role="tab" aria-selected="false" data-tab="detail">거래처별 상세</button>
-      </div>
-      <div class="panel" data-panel="queue" role="tabpanel"></div>
-      <div class="panel" data-panel="confirm" role="tabpanel" hidden></div>
-      <div class="panel" data-panel="picking" role="tabpanel" hidden></div>
-      <div class="panel" data-panel="detail" role="tabpanel" hidden></div>
+        <div class="toolbar">
+          <button type="button" class="primary" id="dl-xlsx">배송표 엑셀</button>
+          <button type="button" id="print-picking">피킹리스트 인쇄</button>
+          <button type="button" id="print-detail">배송표 인쇄</button>
+          <button type="button" id="dl-erp">이카운트 업로드 엑셀</button>
+          <button type="button" id="copy-erp">이카운트 붙여넣기용 복사</button>
+          <button type="button" id="dl-csv">확인큐 CSV</button>
+          <span class="spacer"></span>
+          <span id="confirm-state" class="muted small"></span>
+          <button type="button" class="ok" id="confirm-day">납품분 확정</button>
+          <button type="button" class="ghost" id="new-day">새 날 시작</button>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="queue" id="tab-queue">확인 큐</button>
+          <button role="tab" aria-selected="false" data-tab="confirm" id="tab-confirm">거래처 확인서</button>
+          <button role="tab" aria-selected="false" data-tab="picking">피킹리스트</button>
+          <button role="tab" aria-selected="false" data-tab="detail">거래처별 상세</button>
+        </div>
+        <div class="panel" data-panel="queue" role="tabpanel"></div>
+        <div class="panel" data-panel="confirm" role="tabpanel" hidden></div>
+        <div class="panel" data-panel="picking" role="tabpanel" hidden></div>
+        <div class="panel" data-panel="detail" role="tabpanel" hidden></div>
+      </section>
+    </section>
+
+    <!-- ===== 품목 사전 ===== -->
+    <section id="view-items" hidden>
+      <section class="card">
+        <div class="card-head">
+          <h2>품목 사전</h2>
+          <div class="row">
+            <input type="text" id="items-search" placeholder="품목명·별칭·코드 검색" aria-label="품목 검색">
+            <button type="button" id="items-add">품목 추가</button>
+            <button type="button" id="items-import">CSV 가져오기</button>
+            <button type="button" id="items-export">CSV 내보내기</button>
+            <input type="file" id="items-file" accept=".csv,text/csv" hidden>
+          </div>
+        </div>
+        <p class="hint">식당이 쓰는 표현을 <strong>별칭</strong>에 적어 두면 바로 자동 매칭됩니다(; 로 구분). 확인 큐에서 고른 표현은 자동으로 쌓입니다. <strong>환산</strong>은 "박스=10" 처럼 1주문단위가 품목 단위로 얼마인지. <strong>ERP코드</strong>는 이카운트 품목코드가 다를 때만 적습니다.</p>
+        <p class="hint" id="items-status"></p>
+        <div id="items-table"></div>
+      </section>
+    </section>
+
+    <!-- ===== 거래처 ===== -->
+    <section id="view-clients" hidden>
+      <section class="card">
+        <div class="card-head">
+          <h2>거래처</h2>
+          <div class="row"><button type="button" id="clients-add">거래처 추가</button></div>
+        </div>
+        <p class="hint">처음 보는 카톡 발신자는 확정할 때 자동으로 거래처가 됩니다. 표시 이름이 거래처명과 다르면 <strong>카톡 이름</strong>에 적어 두세요. <strong>직전 주문</strong>은 "어제 거 그대로"를 풀 때 쓰이며 확정할 때마다 갱신됩니다. 첫날이면 "대파 2단, 양파 1망"처럼 직접 적어 둘 수 있습니다.</p>
+        <div id="clients-table"></div>
+      </section>
+    </section>
+
+    <!-- ===== 기록 ===== -->
+    <section id="view-history" hidden>
+      <section class="card">
+        <div class="card-head"><h2>기록</h2><span class="targets">목표: 자동 처리율 85% 이상 · 확인 큐 15% 이하 · 처리 시간 50% 단축</span></div>
+        <div id="history-kpis"></div>
+        <div id="history-table"></div>
+      </section>
+    </section>
+
+    <!-- ===== 설정 ===== -->
+    <section id="view-settings" hidden>
+      <section class="card">
+        <h2>기본</h2>
+        <div class="grid-2">
+          <label class="field"><span>유통사 이름</span><input type="text" id="s-name"></label>
+          <label class="field"><span>우리 담당자 카톡 이름 (쉼표로 여러 개)</span><input type="text" id="s-me" placeholder="예: 새벽들유통, 김담당"></label>
+          <label class="field"><span>확인서 꼬리말</span><input type="text" id="s-footer" placeholder="변경은 이 채널로 회신 주세요. 담당 010-0000-0000"></label>
+          <label class="field"><span>같은 거래처 연속 메시지를 한 주문으로 합치는 간격(분)</span><input type="number" id="s-merge" min="0" max="180"></label>
+          <label class="field"><span>기본 납품일 = 수신일 + 며칠</span><input type="number" id="s-lead" min="0" max="7"></label>
+          <label class="field"><span>도입 전 하루 평균 주문 입력 시간(분) — 단축률 계산용</span><input type="number" id="s-before" min="0" max="600"></label>
+        </div>
+        <div class="field" style="margin-top:10px"><span>배송 없는 요일 (납품일 자동 계산에서 건너뜀)</span>
+          <div class="row" id="s-nodays"></div>
+        </div>
+      </section>
+      <section class="card">
+        <h2>해석 방식</h2>
+        <div class="choice" id="engine-choice">
+          <button type="button" data-engine="rule"><strong>기본 (규칙)</strong><span>키·인터넷 없이 즉시. 품목 사전·별칭에 있는 표현만 알아듣습니다. 모든 산출물이 이것만으로 나옵니다.</span></button>
+          <button type="button" data-engine="llm" id="engine-llm-btn"><strong>AI (Anthropic API 키)</strong><span>처음 보는 표현·사투리·"어제 거 그대로"에 강합니다. 주문 1건당 호출 1회. 실패한 주문은 자동으로 기본 방식으로 처리합니다.</span></button>
+          <button type="button" data-engine="claude" id="engine-claude-btn" hidden><strong>AI (내 claude.ai 계정)</strong><span>키 없이 이 계정으로 호출합니다. 처음 한 번 허용 여부를 묻습니다. 실패한 주문은 기본 방식으로 처리합니다.</span></button>
+        </div>
+        <div id="llm-opts" class="grid-2" style="margin-top:12px" hidden>
+          <label class="field"><span>Anthropic API 키</span><input type="password" id="s-key" autocomplete="off" placeholder="sk-ant-..."></label>
+          <label class="field"><span>모델</span><input type="text" id="s-model"></label>
+          <label class="check" style="grid-column: 1 / -1; display:flex; gap:8px; font-size:14px"><input type="checkbox" id="s-remember"> 이 브라우저에 키 저장 (공용 PC면 끄세요)</label>
+          <p class="hint" style="grid-column: 1 / -1; margin:0">키는 이 브라우저에만 있고, 주문 메시지 원문이 Anthropic API로 전송됩니다. 비용은 키 소유자에게 청구됩니다.</p>
+        </div>
+      </section>
+      <section class="card">
+        <h2>이카운트 업로드</h2>
+        <div class="grid-2">
+          <label class="field"><span>출하창고 코드</span><input type="text" id="s-warehouse" placeholder="예: 100"></label>
+          <p class="hint" style="margin:0">이카운트 "판매입력 → 웹자료올리기" 서식의 공통 골격(일자·순번·거래처코드·…·적요)으로 만듭니다. 거래처코드와 품목코드는 거래처·품목 사전의 ERP코드(없으면 품목코드)를 씁니다. 단가·공급가액은 비워 두니 이카운트에서 채우세요.</p>
+        </div>
+      </section>
+      <section class="card">
+        <h2>백업</h2>
+        <p class="hint">모든 데이터는 이 주소·이 브라우저에만 있습니다. 브라우저 데이터를 지우거나 PC를 바꾸면 사라지니 백업을 받아 두세요. <span id="storage-status"></span> <span id="backup-status"></span></p>
+        <label class="check" style="display:flex; gap:8px; font-size:14px; margin-top:10px"><input type="checkbox" id="s-autobackup"> 납품분을 확정할 때마다 백업 파일 자동 내려받기</label>
+        <div class="row" style="margin-top:10px">
+          <button type="button" id="s-export">JSON 백업 내려받기</button>
+          <button type="button" id="s-import">백업 가져오기</button>
+          <input type="file" id="s-import-file" accept=".json,application/json" hidden>
+          <span class="spacer"></span>
+          <button type="button" class="danger" id="s-reset">모든 데이터 지우기</button>
+        </div>
+        <p class="hint" id="s-reset-hint" hidden>백업을 먼저 받아 두셨나요? 정말 지우려면 5초 안에 한 번 더 누르세요.</p>
+      </section>
     </section>
   </main>
 
   <footer class="wrap foot">
-    <span id="data-info"></span> · 상호·데이터는 모두 가상입니다 · 외부 연동(카카오·ERP) 없음
+    오더노트 · 카카오·ERP 직접 연동 없음(카톡 내보내기 붙여넣기 → 엑셀 업로드) · <span id="data-info"></span>
   </footer>
 
+  <!-- 확인 큐 해결 -->
+  <dialog id="resolve-dialog" aria-labelledby="rd-title">
+    <form method="dialog" class="dlg" id="rd-form">
+      <div class="row between"><h3 id="rd-title">확인 큐</h3><span class="muted small" id="rd-pos"></span></div>
+      <div class="orig"><strong id="rd-raw"></strong> <span id="rd-reason" class="small"></span></div>
+      <div class="ctx" id="rd-ctx"></div>
+      <div>
+        <div class="small muted" style="margin-bottom:4px">후보 품목 <span class="muted">(숫자키로 선택)</span></div>
+        <div class="cands" id="rd-cands"></div>
+      </div>
+      <div class="row">
+        <label class="field" style="flex:1"><span>다른 품목 찾기</span><input type="text" id="rd-search" placeholder="품목명·별칭·코드" autocomplete="off"></label>
+        <button type="button" class="small" id="rd-new" style="align-self:flex-end">새 품목으로 등록</button>
+      </div>
+      <div class="search-list" id="rd-list"></div>
+      <div class="qty">
+        <label class="field"><span>수량 <span id="rd-unit" class="muted"></span></span><input type="number" id="rd-qty" min="0" step="any" inputmode="decimal"></label>
+        <span class="hint" id="rd-qty-hint"></span>
+      </div>
+      <label class="check" id="rd-learn-wrap"><input type="checkbox" id="rd-learn" checked><span id="rd-learn-label"></span></label>
+      <label class="check" id="rd-scope-wrap" hidden><input type="checkbox" id="rd-scope"><span>이 거래처에만 적용 (같은 표현을 다른 거래처는 다르게 쓸 때)</span></label>
+      <label class="check" id="rd-same-wrap" hidden><input type="checkbox" id="rd-same" checked><span id="rd-same-label"></span></label>
+      <label class="check" id="rd-conv-wrap" hidden><input type="checkbox" id="rd-conv"><span id="rd-conv-label"></span></label>
+      <p class="error" id="rd-error" hidden></p>
+      <div class="btns">
+        <button type="button" class="left ghost" id="rd-dismiss">주문 아님 (제외)</button>
+        <button type="button" class="ghost" id="rd-cancel">취소</button>
+        <button type="button" class="primary" id="rd-ok">확정 → 다음</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="web/core.js"></script>
+  <script src="web/kakao.js"></script>
+  <script src="web/store.js"></script>
   <script type="module" src="web/app.js"></script>
 </body>
 </html>
