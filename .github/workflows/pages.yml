@@ -1,0 +1,42 @@
+# GitHub Pages 배포: 저장소 루트를 그대로 정적 사이트로 올린다.
+# 주소: https://jinsung-kim-ykb.github.io/playground_youtube/
+# 저장소가 Public이어야 한다(무료 계정의 Private 저장소는 Pages를 쓸 수 없음).
+name: pages
+
+on:
+  push:
+    branches: [main, claude/admiring-allen-bobzah]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: 사이트 파일만 모으기
+        run: |
+          mkdir -p _site
+          cp -r index.html web data input README.md _site/
+          rm -rf _site/web/__pycache__
+          touch _site/.nojekyll
+          du -sh _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
