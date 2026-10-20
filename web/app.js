@@ -1251,6 +1251,7 @@ async function boot() {
   bind();
   state.claudeReady = setupClaude(); // 준비되면 엔진 목록이 바뀐다
   loadSampleData().catch(() => { /* 샘플 없이도 동작 */ });
+  if (window.__demoReady) await window.__demoReady;   // ?demo= 데모 작업공간 준비 (web/demo.js)
   const ws = Store.load();
   if (!ws) { showView("onboard"); return; }
   state.ws = ws;
