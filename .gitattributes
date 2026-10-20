@@ -1,0 +1,2 @@
+# run.bat 는 CRLF 바이트 그대로 보관 (git archive/ZIP 에서도 변환 없음)
+run.bat -text
