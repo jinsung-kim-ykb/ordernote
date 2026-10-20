@@ -101,12 +101,12 @@ class Catalog:
                 scored[item.품목코드] = (s, key)
         ranked = sorted(scored.items(), key=lambda kv: -kv[1][0])
         if not ranked:
-            return MatchResult(None, reason="품목 마스터에 없음")
+            return MatchResult(None, reason="품목 사전에 없음")
         top_code, (top_score, top_key) = ranked[0]
         second = ranked[1][1][0] if len(ranked) > 1 else 0
         cands = self.candidates(name)
         if top_score < FUZZY_THRESHOLD:
-            reason = "품목 특정 불가(후보 중 선택 필요)" if cands else "품목 마스터에 없음"
+            reason = "품목 특정 불가(후보 중 선택 필요)" if cands else "품목 사전에 없음"
             return MatchResult(None, reason=reason, candidates=cands)
         if q in top_key or top_key in q:
             return MatchResult(None, reason=f"품목명 일부만 일치('{name}' ↔ '{top_key}')", candidates=cands)

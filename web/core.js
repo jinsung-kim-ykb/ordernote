@@ -187,7 +187,7 @@
       const [topCode, [topScore, topKey]] = ranked[0] || [null, [0, ""]];
       const second = ranked[1] ? ranked[1][1][0] : 0;
       if (topScore < FUZZY_THRESHOLD) {
-        const reason = cands.length ? "품목 특정 불가(후보 중 선택 필요)" : "품목 마스터에 없음";
+        const reason = cands.length ? "품목 특정 불가(후보 중 선택 필요)" : "품목 사전에 없음";
         return { item: null, how: "", reason, candidates: cands };
       }
       if (topKey.includes(q) || q.includes(topKey)) {
@@ -359,7 +359,7 @@
 
   class RuleExtractor {
     constructor(catalog, history) {
-      this.name = "규칙(오프라인)";
+      this.name = "기본(규칙)";
       this.catalog = catalog;
       this.history = history;
     }

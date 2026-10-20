@@ -104,7 +104,7 @@ SEGMENT_RE = re.compile(r"[,\n.]|그리고|근데")
 
 
 class RuleExtractor:
-    name = "규칙(오프라인)"
+    name = "기본(규칙)"
 
     def __init__(self, catalog: Catalog, history: dict):
         self.catalog = catalog
