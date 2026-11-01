@@ -26,15 +26,18 @@ const state = { ws: null, sample: null, gold: null, parsed: null, orders: [], re
 let saveTimer = null;
 function doSave() {
   saveTimer = null;
-  if (!state.ws) return;
+  if (!state.ws) return false;
   const ok = Store.save(state.ws);
   const el = $("#storage-status");
   if (el) el.textContent = ok ? `마지막 저장 ${new Date().toLocaleTimeString("ko-KR")}.` : "저장 실패: 이 브라우저는 저장소를 막고 있습니다(시크릿 창?).";
   if (!ok) showError("브라우저 저장소에 저장하지 못했습니다. 시크릿 창이거나 저장 공간이 막혀 있으면 데이터가 남지 않습니다. 설정 → 백업으로 내보내 두세요.");
+  return ok;
 }
 function touch(immediate = false) {
   clearTimeout(saveTimer);
-  if (immediate) doSave(); else saveTimer = setTimeout(doSave, 300);
+  if (immediate) return doSave();
+  saveTimer = setTimeout(doSave, 300);
+  return true;
 }
 function flushSave() { if (saveTimer) { clearTimeout(saveTimer); doSave(); } }
 window.addEventListener("pagehide", flushSave);
@@ -1171,10 +1174,16 @@ async function importTemplate(input) {
     let t = null;
     for (const sh of wb.worksheets) { t = Store.templateFromRows(sheetRows(sh), { name: f.name, sheet: sh.name }); if (t) break; }
     if (!t) return showError("머리글 줄을 찾지 못했습니다. 첫 30줄 안에 '거래처·품목·수량' 같은 제목이 있는 줄이 있어야 합니다.");
-    if (f.size <= 1_500_000) t.file = bufferToBase64(buf);
+    if (f.size <= Store.TEMPLATE_FILE_MAX) t.file = bufferToBase64(buf);
     state.ws.settings.template = Store.normalizeTemplate(t);
-    touch(true);
+    let note = f.size > Store.TEMPLATE_FILE_MAX ? ` · 파일이 ${Math.round(f.size / 1024)}KB라 머리글만 기억합니다(빈 서식은 보통 50KB 이하). 글꼴·테두리까지 쓰려면 데이터를 지운 빈 서식을 올리세요.` : "";
+    if (!touch(true) && state.ws.settings.template.file) {            // 저장 공간이 모자라면 원본 파일은 포기하고 머리글만 남긴다
+      state.ws.settings.template.file = "";
+      note = " · 브라우저 저장 공간이 모자라 머리글만 기억합니다.";
+      touch(true);
+    }
     renderTemplateSettings(); renderTemplateButton();
+    if (note) $("#s-tpl-status").textContent += note;
     $("#progress").textContent = "";
   } catch (e) { showError(`서식 읽기 실패: ${e.message}`); }
   finally { input.value = ""; }
@@ -1200,6 +1209,20 @@ function templateRows(res, t) {
   return rows;
 }
 
+/** 올려 둔 서식 파일의 수식·하이퍼링크를 값으로 바꾼다(백업 JSON으로 들어온 남의 파일일 수 있어서). */
+function neutralizeWorkbook(wb) {
+  for (const sh of wb.worksheets) {
+    sh.eachRow({ includeEmpty: false }, (row) => row.eachCell({ includeEmpty: false }, (cell) => {
+      const v = cell.value;
+      if (v && typeof v === "object") {
+        if ("formula" in v || "sharedFormula" in v) cell.value = v.result ?? "";
+        else if ("hyperlink" in v) cell.value = v.text ?? "";
+      }
+    }));
+    if (sh.dataValidations?.model) sh.dataValidations.model = {};
+  }
+}
+
 /** 내 서식 배송표: 원본 파일이 있으면 그 시트의 머리글 아래에 줄을 채우고, 없으면 머리글만 같은 새 파일. */
 function downloadTemplateXlsx() {
   const res = state.result;
@@ -1212,6 +1235,7 @@ function downloadTemplateXlsx() {
     if (t.file) {
       try {
         await wb.xlsx.load(base64ToBuffer(t.file));
+        neutralizeWorkbook(wb);                                   // 백업 파일로 들어온 서식일 수 있으니 수식·링크는 값으로 바꾼다
         sheet = wb.getWorksheet(t.sheet) || wb.worksheets[0];
         const sample = sheet.getRow(t.headerRow + 1);
         styles = Array.from({ length: width }, (_, i) => (sample.getCell(i + 1).style ? JSON.parse(JSON.stringify(sample.getCell(i + 1).style)) : null));

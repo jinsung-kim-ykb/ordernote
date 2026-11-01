@@ -336,6 +336,7 @@ function memStorage() {
     const bad = Store.normalizeTemplate({ name: "<b>x</b>", sheet: "s", headerRow: 999, headers: ["거래처", "<script>", "수량"], map: { 거래처명: 1, 수량: 7, __proto__: { x: 1 }, 없는필드: 2 }, file: "not base64!!" });
     assert.strictEqual(bad.headerRow, 100); assert.deepStrictEqual(bad.map, { 거래처명: 1 }); assert.strictEqual(bad.file, "", "잘못된 파일 문자열은 버린다");
     assert.strictEqual(Store.normalizeTemplate({ headers: [] }), null);
+    assert.strictEqual(Store.normalizeTemplate({ headers: ["a", "b", "c"], file: "A".repeat(Store.TEMPLATE_FILE_MAX * 2) }).file, "", "너무 큰 서식 파일은 머리글만 남긴다");
     const ws3 = Store.importJson(JSON.stringify({ items: [{ 품목코드: "X1", 품목명: "대파", 규격: "1단", 단위: "단" }], settings: { template: { name: "t.xlsx", sheet: "s", headerRow: 2, headers: ["거래처", "품목", "수량"], map: { 거래처명: 1, 품목명: 2, 수량: 3 }, file: "QUJD" } } }));
     assert.strictEqual(ws3.settings.template.file, "QUJD", "백업을 거쳐도 서식이 남는다");
   }

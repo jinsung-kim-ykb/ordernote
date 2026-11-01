@@ -217,12 +217,14 @@
     while (headers.length && !headers[headers.length - 1]) headers.pop();
     return { name: str(name, 80), sheet: str(sheet, 60), headerRow: headerRow + 1, headers: headers.slice(0, 100), map: guessTemplateMap(headers), file: "" };
   }
+  const TEMPLATE_FILE_MAX = 300_000;                       // 원본 서식 파일을 기억하는 상한(바이트). 서식은 보통 10~50KB
+  const TEMPLATE_FILE_MAX_B64 = Math.ceil(TEMPLATE_FILE_MAX / 3) * 4;
   function normalizeTemplate(t) {
     if (!isObj(t) || !Array.isArray(t.headers) || !t.headers.length) return null;
     const headers = t.headers.slice(0, 100).map((h) => str(h, 60));
     const map = {};
     if (isObj(t.map)) for (const f of TEMPLATE_FIELDS) { const v = num(t.map[f.id], 0); if (v >= 1 && v <= headers.length) map[f.id] = Math.floor(v); }
-    const file = typeof t.file === "string" && t.file.length <= 2000000 && /^[A-Za-z0-9+/=]*$/.test(t.file) ? t.file : "";
+    const file = typeof t.file === "string" && t.file.length <= TEMPLATE_FILE_MAX_B64 && /^[A-Za-z0-9+/=]*$/.test(t.file) ? t.file : ""; // 큰 파일은 머리글만 남긴다(localStorage 용량)
     return { name: str(t.name, 80), sheet: str(t.sheet, 60), headerRow: Math.max(1, Math.min(100, Math.floor(num(t.headerRow, 1)))), headers, map, file };
   }
 
@@ -556,7 +558,7 @@
     KEY, VERSION, blank, blankSession, load, save, migrate, exportJson, importJson,
     itemsCsv, importItemsCsv, addItem, removeItem, normalizeItem, findItemByName, learnAlias, forgetAlias, learnConversion,
     clientNameFor, ensureClient, renameClient, history, confirmDay, newDay, loadSample, leaveSample, loadDefaultItems, stats, today, readItemsCsv, validDate,
-    TEMPLATE_FIELDS, guessTemplateMap, templateFromRows, normalizeTemplate, missingClients,
+    TEMPLATE_FIELDS, TEMPLATE_FILE_MAX, guessTemplateMap, templateFromRows, normalizeTemplate, missingClients,
   };
   root.OrderNoteStore = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
