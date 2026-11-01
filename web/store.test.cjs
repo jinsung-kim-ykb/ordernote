@@ -333,6 +333,8 @@ function memStorage() {
     assert.deepStrictEqual(t.map, { 거래처명: 3, 품목명: 4, 납품일: 2, 규격: 5, 수량: 6, 단위: 7, 비고: 8, 순번: 1 });
     assert.deepStrictEqual(Store.guessTemplateMap(["일자", "거래처코드", "거래처명", "품목코드", "품목명", "규격", "수량", "단가", "적요"]), { 거래처코드: 2, 품목코드: 4, 거래처명: 3, 품목명: 5, 납품일: 1, 규격: 6, 수량: 7, 비고: 9 });
     assert.strictEqual(Store.templateFromRows([[1, 2, 3], ["a"]]), null, "머리글이 없으면 null");
+    assert.strictEqual(Store.templateFromRows([["배송표"], ["납품일:", "2026-11-02", "작성:", "김담당"], ["거래처", "품목", "수량"]]).headerRow, 3, "머리말 줄보다 열 이름이 맞는 줄이 머리글");
+    assert.strictEqual(Store.templateFromRows([["a", "b", "c"], ["d", "e", "f"]]), null, "열 이름이 하나도 안 맞으면 머리글로 보지 않는다");
     const bad = Store.normalizeTemplate({ name: "<b>x</b>", sheet: "s", headerRow: 999, headers: ["거래처", "<script>", "수량"], map: { 거래처명: 1, 수량: 7, __proto__: { x: 1 }, 없는필드: 2 }, file: "not base64!!" });
     assert.strictEqual(bad.headerRow, 100); assert.deepStrictEqual(bad.map, { 거래처명: 1 }); assert.strictEqual(bad.file, "", "잘못된 파일 문자열은 버린다");
     assert.strictEqual(Store.normalizeTemplate({ headers: [] }), null);

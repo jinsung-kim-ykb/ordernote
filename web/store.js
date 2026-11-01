@@ -205,12 +205,15 @@
   /** 엑셀 시트를 글자 표(rows[r][c])로 받아 머리글 줄을 찾고 열을 짝짓는다. */
   function templateFromRows(rows, { name = "", sheet = "" } = {}) {
     const text = (v) => (v == null ? "" : String(v).trim());
-    // 머리글 줄 = 앞 30줄 중 서로 다른 글자 칸이 가장 많은 줄(3개 이상). 병합된 제목 칸은 같은 글자가 반복되므로 서로 다른 값만 센다.
-    let headerRow = -1, best = 2;
+    // 머리글 줄 = 앞 30줄 중 '거래처·품목·수량' 같은 열 이름이 가장 많이 맞는 줄(2개 이상). 같으면 서로 다른 글자 칸이 많은 줄.
+    // 병합된 제목 칸은 같은 글자가 반복되므로 서로 다른 값만 세고, '납품일: 2026-11-02 작성: 김담당' 같은 머리말 줄은 열 이름이 적어 밀린다.
+    let headerRow = -1, bestHits = 1, bestDistinct = 0;
     for (let r = 0; r < Math.min(rows.length, 30); r++) {
       const cells = (rows[r] || []).map(text);
       const distinct = new Set(cells.filter((c) => c && !/^[\d.,-]+$/.test(c))).size;
-      if (distinct > best) { best = distinct; headerRow = r; }
+      if (distinct < 3) continue;
+      const hits = Object.keys(guessTemplateMap(cells)).length;
+      if (hits > bestHits || (hits === bestHits && distinct > bestDistinct)) { bestHits = hits; bestDistinct = distinct; headerRow = r; }
     }
     if (headerRow < 0) return null;
     const headers = (rows[headerRow] || []).map((v) => text(v).slice(0, 60));
@@ -236,7 +239,7 @@
     const out = [];
     for (const [name, c] of Object.entries(ws.clients)) {
       if (seen.has(name) || !c.직전주문일 || (c.주문횟수 || 0) < 2) continue;
-      const diff = (refMs - new Date(`${c.직전주문일}T00:00:00`).getTime()) / 86400000;
+      const diff = Math.round((refMs - new Date(`${c.직전주문일}T00:00:00`).getTime()) / 86400000);   // 서머타임 지역에서도 날짜 차이가 정수
       if (diff >= 0 && diff <= 7) out.push({ name, 직전주문일: c.직전주문일, 주문횟수: c.주문횟수 });
     }
     return out.sort((a, b) => (a.직전주문일 < b.직전주문일 ? 1 : a.직전주문일 > b.직전주문일 ? -1 : a.name.localeCompare(b.name, "ko")));

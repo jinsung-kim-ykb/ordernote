@@ -169,7 +169,8 @@ async function setupClaude() {
   $("#s-autobackup").closest("label").hidden = true; // 링크 화면에서는 저장 확인창이 매번 뜨므로 자동 백업을 쓰지 않는다
   state.claudeSample = await window.claude.use("sample");
   const dl = await window.claude.use("downloads");
-  if (!dl) $$("#dl-xlsx, #dl-erp, #dl-csv, #s-export, #items-export, #backup-now").forEach((b) => (b.hidden = true));
+  state.noDownloads = !dl;
+  if (!dl) $$("#dl-xlsx, #dl-erp, #dl-tpl, #dl-csv, #s-export, #items-export, #backup-now").forEach((b) => (b.hidden = true));
   renderEngineLine();
   if (state.view === "settings") renderSettings();
 }
@@ -409,7 +410,7 @@ function renderMissingClients(res) {
 function renderTemplateButton() {
   const t = state.ws?.settings.template;
   const b = $("#dl-tpl");
-  b.hidden = !t || IN_CLAUDE && !b.dataset.ok;
+  b.hidden = !t || !Object.keys(t.map).length || !!state.noDownloads;
   if (t) b.textContent = `내 서식 배송표${t.name ? ` (${t.name.replace(/\.xlsx$/i, "").slice(0, 20)})` : ""}`;
 }
 
@@ -1228,6 +1229,7 @@ function downloadTemplateXlsx() {
   const res = state.result;
   const t = state.ws.settings.template;
   if (!res || !t) return;
+  if (!Object.keys(t.map).length) return showError("서식의 열 짝짓기가 비어 있습니다. 설정 → 내 배송표 서식에서 거래처·품목·수량 열을 골라 주세요.");
   return withExcel($("#dl-tpl"), async (wb) => {
     const rows = templateRows(res, t);
     const width = t.headers.length;
@@ -1239,7 +1241,9 @@ function downloadTemplateXlsx() {
         sheet = wb.getWorksheet(t.sheet) || wb.worksheets[0];
         const sample = sheet.getRow(t.headerRow + 1);
         styles = Array.from({ length: width }, (_, i) => (sample.getCell(i + 1).style ? JSON.parse(JSON.stringify(sample.getCell(i + 1).style)) : null));
-        if (sheet.rowCount > t.headerRow) sheet.spliceRows(t.headerRow + 1, sheet.rowCount - t.headerRow);
+        // 머리글 아래의 예시·합계 줄은 모두 지운다. 병합은 먼저 풀고, 줄은 아래에서부터 하나씩(ExcelJS의 spliceRows 는 끝 구간을 한꺼번에 지우지 못한다)
+        for (const range of (sheet.model.merges || []).slice()) { const top = +(range.match(/\d+/) || [0])[0]; if (top > t.headerRow) sheet.unMergeCells(range); }
+        for (let r = sheet.rowCount; r > t.headerRow; r--) sheet.spliceRows(r, 1);
       } catch (e) { sheet = null; styles = null; wb = new window.ExcelJS.Workbook(); showError(`원본 서식을 열지 못해 머리글만 같은 파일로 만듭니다 (${e.message})`); }
     }
     if (!sheet) { sheet = wb.addWorksheet(sheetName(wb, t.sheet || "배송표")); for (let r = 1; r < t.headerRow; r++) sheet.addRow([]); sheet.addRow(t.headers).font = { bold: true }; }
@@ -1247,7 +1251,7 @@ function downloadTemplateXlsx() {
       const cells = Array.from({ length: width }, () => null);
       for (const [field, col] of Object.entries(t.map)) { const val = row.v[field]; cells[col - 1] = typeof val === "string" ? val.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "") : val; }
       const r = sheet.insertRow(t.headerRow + 1 + i, cells);
-      if (styles) styles.forEach((st, c) => { if (st) r.getCell(c + 1).style = st; });
+      if (styles) styles.forEach((st, c) => { if (st) r.getCell(c + 1).style = JSON.parse(JSON.stringify(st)); });   // 줄마다 제 몫의 서식(공유하면 노란 칠이 번진다)
       if (row.pending) for (const col of Object.values(t.map)) r.getCell(col).fill = YELLOW;
     });
     const buf = await wb.xlsx.writeBuffer();
