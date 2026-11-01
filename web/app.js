@@ -59,7 +59,7 @@ async function loadSampleData() {
   const d = CONFIG.data || {};
   const [items, history, orders, expected, defaultItems] = await Promise.all([
     d.items ?? fetchText("data/items.csv"), d.history ?? fetchText("data/history.json"),
-    d.orders ?? fetchText("input/orders.txt"), d.expected ?? fetchText("data/expected.json"),
+    d.orders ?? fetchText("input/orders_kakao.txt"), d.expected ?? fetchText("data/expected.json"),
     d.defaultItems ?? fetchText("data/items_default.csv").catch(() => null),
   ]);
   state.sample = { items, history, orders, expected, defaultItems };
@@ -392,6 +392,24 @@ async function process() {
 }
 
 // ============================================================ 결과 렌더링
+/** 최근에 주문하던 거래처가 이 배치에 없으면 알린다 — 놓친 주문이 모든 문제의 시작이라서. */
+function renderMissingClients(res) {
+  const el = $("#missing-clients");
+  const ref = res.orders.map((o) => o.수신시각.text.slice(0, 10)).sort().pop() || Store.today();
+  const miss = Store.missingClients(state.ws, res.orders, ref);
+  el.hidden = !miss.length;
+  if (!miss.length) return;
+  const names = miss.slice(0, 6).map((m) => `${esc(m.name)} <span class="muted">(${esc(labelDate(m.직전주문일))} 납품까지 주문)</span>`).join(", ");
+  el.innerHTML = `<span><strong>아직 주문이 없는 단골 ${miss.length}곳</strong> — ${names}${miss.length > 6 ? " 등" : ""}. 마감 전에 한 번 확인해 보세요.</span>`;
+}
+
+function renderTemplateButton() {
+  const t = state.ws?.settings.template;
+  const b = $("#dl-tpl");
+  b.hidden = !t || IN_CLAUDE && !b.dataset.ok;
+  if (t) b.textContent = `내 서식 배송표${t.name ? ` (${t.name.replace(/\.xlsx$/i, "").slice(0, 20)})` : ""}`;
+}
+
 function isAdded(r) {
   const s = state.ws.session;
   return !!s.confirmedAt && s.confirmedKeys && !s.confirmedKeys.includes(r.key);
@@ -416,6 +434,8 @@ function render(res) {
   $("#k-auto").textContent = `${pct(s.autoLines, s.lines)}%`;
   $("#k-auto-note").textContent = `${s.autoLines}/${s.lines}줄 · 묻지 않고 바로 들어간 줄`;
   $("#tab-queue").textContent = `확인할 줄 (${s.pendingLines})`;
+  renderMissingClients(res);
+  renderTemplateButton();
 
   const evalEl = $("#eval");
   if (state.gold && state.sample && ws.settings.sample && $("#orders").value.trim() === state.sample.orders.trim() && !Object.keys(ws.session.resolutions).length) {
@@ -1092,6 +1112,7 @@ function renderSettings() {
   $("#s-warehouse").value = s.warehouse || "";
   $("#s-key").value = s.apiKey || "";
   $("#s-model").value = s.model || "claude-opus-5-5";
+  renderTemplateSettings();
   $("#s-remember").checked = !!s.rememberKey;
   $("#s-autobackup").checked = !!s.autoBackup;
   $("#s-nodays").innerHTML = DAY_NAMES.map((n, i) => `<label class="chip"><input type="checkbox" data-day="${i}" ${(s.noDeliveryDays || []).includes(i) ? "checked" : ""}> ${n}</label>`).join("");
@@ -1104,8 +1125,117 @@ function renderSettings() {
   renderBackupStatus();
 }
 
+function renderTemplateSettings() {
+  const t = state.ws.settings.template;
+  const box = $("#s-tpl-map");
+  $("#s-tpl-clear").hidden = !t;
+  if (!t) { $("#s-tpl-status").textContent = "아직 서식이 없습니다. 지금 쓰는 배송표 엑셀을 올리면 그 열 순서대로 내보냅니다."; box.innerHTML = ""; return; }
+  $("#s-tpl-status").textContent = `${t.name || "서식"} · 시트 '${t.sheet}' · ${t.headerRow}번째 줄이 머리글 (${t.headers.filter(Boolean).length}열)${t.file ? " · 원본 서식(글꼴·테두리) 유지" : " · 머리글만 기억 (원본 파일 없음)"}`;
+  box.innerHTML = Store.TEMPLATE_FIELDS.map((f) => `<label class="field"><span>${esc(f.label)}</span><select data-field="${esc(f.id)}">
+      <option value="">(안 씀)</option>${t.headers.map((h, i) => h ? `<option value="${i + 1}" ${t.map[f.id] === i + 1 ? "selected" : ""}>${esc(h)}</option>` : "").join("")}
+    </select></label>`).join("");
+  box.querySelectorAll("select").forEach((sel) => sel.addEventListener("change", () => {
+    const v = +sel.value;
+    if (v) t.map[sel.dataset.field] = v; else delete t.map[sel.dataset.field];
+    touch(); renderTemplateButton();
+  }));
+}
+
+function bufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+function base64ToBuffer(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
+function sheetRows(sheet, max = 40) {
+  const rows = [];
+  sheet.eachRow({ includeEmpty: true }, (row, n) => { if (n <= max) rows[n - 1] = row.values.slice(1).map((v) => (v && typeof v === "object" ? (v.richText ? v.richText.map((x) => x.text).join("") : v.text ?? v.result ?? "") : v)); });
+  return rows;
+}
+/** 유통사가 쓰던 배송표 엑셀을 서식으로 등록: 머리글 줄을 찾고 열을 짝짓고, 작으면 원본 파일도 기억해 글꼴·테두리를 그대로 쓴다. */
+async function importTemplate(input) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  if (f.size > 5_000_000) return showError("서식 파일이 너무 큽니다(5MB 초과). 빈 서식만 올려 주세요.");
+  try {
+    await loadScript(CONFIG.exceljs || "web/vendor/exceljs.min.js");
+    const buf = await f.arrayBuffer();
+    const wb = new window.ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    let t = null;
+    for (const sh of wb.worksheets) { t = Store.templateFromRows(sheetRows(sh), { name: f.name, sheet: sh.name }); if (t) break; }
+    if (!t) return showError("머리글 줄을 찾지 못했습니다. 첫 30줄 안에 '거래처·품목·수량' 같은 제목이 있는 줄이 있어야 합니다.");
+    if (f.size <= 1_500_000) t.file = bufferToBase64(buf);
+    state.ws.settings.template = Store.normalizeTemplate(t);
+    touch(true);
+    renderTemplateSettings(); renderTemplateButton();
+    $("#progress").textContent = "";
+  } catch (e) { showError(`서식 읽기 실패: ${e.message}`); }
+  finally { input.value = ""; }
+}
+
+function templateRows(res, t) {
+  const rows = [];
+  const withPending = !!t.map.상태;
+  let n = 0;
+  for (const [client, rs] of ON.groupBy(res.resolved.filter((r) => r.status === "정상" || (withPending && r.status === "확인필요")), (r) => r.order.거래처)) {
+    const c = hasOwn(state.ws.clients, client) ? state.ws.clients[client] : null;
+    for (const r of rs) {
+      n++;
+      const v = {
+        순번: n, 납품일: r.line.납품일 || res.mainDate, 거래처명: client, 거래처코드: c?.ERP코드 || "",
+        품목코드: r.item ? r.item.ERP코드 || r.item.품목코드 : "", 품목명: r.item?.품목명 ?? "", 규격: r.item?.규격 ?? "",
+        수량: r.수량 ?? "", 단위: r.단위 ?? "", 원문: ON.rawText(r),
+        비고: [r.status === "확인필요" ? r.사유 : "", r.line.메모 || "", r.resolved ? "직접 고름" : ""].filter(Boolean).join(" / "), 상태: r.status,
+      };
+      rows.push({ v, pending: r.status === "확인필요" });
+    }
+  }
+  return rows;
+}
+
+/** 내 서식 배송표: 원본 파일이 있으면 그 시트의 머리글 아래에 줄을 채우고, 없으면 머리글만 같은 새 파일. */
+function downloadTemplateXlsx() {
+  const res = state.result;
+  const t = state.ws.settings.template;
+  if (!res || !t) return;
+  return withExcel($("#dl-tpl"), async (wb) => {
+    const rows = templateRows(res, t);
+    const width = t.headers.length;
+    let sheet = null, styles = null;
+    if (t.file) {
+      try {
+        await wb.xlsx.load(base64ToBuffer(t.file));
+        sheet = wb.getWorksheet(t.sheet) || wb.worksheets[0];
+        const sample = sheet.getRow(t.headerRow + 1);
+        styles = Array.from({ length: width }, (_, i) => (sample.getCell(i + 1).style ? JSON.parse(JSON.stringify(sample.getCell(i + 1).style)) : null));
+        if (sheet.rowCount > t.headerRow) sheet.spliceRows(t.headerRow + 1, sheet.rowCount - t.headerRow);
+      } catch (e) { sheet = null; styles = null; wb = new window.ExcelJS.Workbook(); showError(`원본 서식을 열지 못해 머리글만 같은 파일로 만듭니다 (${e.message})`); }
+    }
+    if (!sheet) { sheet = wb.addWorksheet(sheetName(wb, t.sheet || "배송표")); for (let r = 1; r < t.headerRow; r++) sheet.addRow([]); sheet.addRow(t.headers).font = { bold: true }; }
+    rows.forEach((row, i) => {
+      const cells = Array.from({ length: width }, () => null);
+      for (const [field, col] of Object.entries(t.map)) { const val = row.v[field]; cells[col - 1] = typeof val === "string" ? val.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "") : val; }
+      const r = sheet.insertRow(t.headerRow + 1 + i, cells);
+      if (styles) styles.forEach((st, c) => { if (st) r.getCell(c + 1).style = st; });
+      if (row.pending) for (const col of Object.values(t.map)) r.getCell(col).fill = YELLOW;
+    });
+    const buf = await wb.xlsx.writeBuffer();
+    await saveFile(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `배송표_${res.mainDate.replace(/-/g, "")}_${(t.name || "내서식").replace(/\.xlsx$/i, "").replace(/[\\/:*?"<>|]/g, "").slice(0, 30)}.xlsx`);
+  });
+}
+
 function bindSettings() {
   const s = () => state.ws.settings;
+  $("#s-tpl-upload").addEventListener("click", () => $("#s-tpl-file").click());
+  $("#s-tpl-file").addEventListener("change", (e) => importTemplate(e.target));
+  $("#s-tpl-clear").addEventListener("click", () => { s().template = null; touch(true); renderTemplateSettings(); renderTemplateButton(); });
   $("#s-name").addEventListener("change", (e) => { s().유통사명 = e.target.value.trim().slice(0, 40) || s().유통사명; e.target.value = s().유통사명; ON.setDistributor(s().유통사명, s().confirmFooter); touch(); renderChrome(); });
   $("#s-me").addEventListener("change", (e) => { s().담당자이름 = e.target.value.split(",").map((x) => x.trim().slice(0, 60)).filter(Boolean); touch(); });
   $("#s-footer").addEventListener("change", (e) => { s().confirmFooter = e.target.value.trim().slice(0, 200); ON.setDistributor(s().유통사명, s().confirmFooter); touch(); });
@@ -1210,6 +1340,7 @@ function bind() {
   }));
   $("#dl-xlsx").addEventListener("click", downloadXlsx);
   $("#dl-erp").addEventListener("click", downloadErp);
+  $("#dl-tpl").addEventListener("click", downloadTemplateXlsx);
   $("#copy-erp").addEventListener("click", copyErp);
   $("#dl-csv").addEventListener("click", downloadCsv);
   $("#print-picking").addEventListener("click", () => printPanel("picking"));

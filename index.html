@@ -41,12 +41,12 @@
       <div class="choice">
         <button type="button" id="ob-default"><strong>우리 주문 시작 (기본 식자재 사전 내장)</strong><span>채소·육류·수산·양념·공산품 200개 품목과 흔한 별칭이 들어 있습니다. 첫날은 확인할 줄이 많고, 고를수록 줄어듭니다.</span></button>
         <button type="button" id="ob-csv"><strong>내 품목 사전 CSV로 시작</strong><span>품목코드·품목명·규격·단위 열이 있는 CSV (이카운트 품목 내보내기 그대로도 됩니다).</span></button>
-        <button type="button" id="ob-sample"><strong>샘플로 둘러보기</strong><span>가상 거래처 5곳·주문 20건으로 흐름만 봅니다. 언제든 샘플을 지우고 시작할 수 있어요.</span></button>
+        <button type="button" id="ob-sample"><strong>샘플로 둘러보기</strong><span>가상 식당 8곳의 카톡 대화 내보내기(주문 20건)로 흐름만 봅니다. 언제든 샘플을 지우고 시작할 수 있어요.</span></button>
         <button type="button" id="ob-import"><strong>백업 파일 가져오기</strong><span>다른 PC나 폰의 오더노트에서 저장한 백업 파일</span></button>
       </div>
       <input type="file" id="ob-csv-file" accept=".csv,text/csv" hidden>
       <input type="file" id="ob-import-file" accept=".json,application/json" hidden>
-      <p class="hint">데이터는 <strong>이 주소·이 브라우저</strong>에만 저장됩니다. 다른 PC나 폰에서는 보이지 않으니 설정 → 백업으로 옮기세요.</p>
+      <p class="hint">거래처·주문 데이터는 <strong>이 컴퓨터의 이 브라우저</strong>에만 있고 어디에도 올라가지 않습니다. 다른 PC나 폰에서는 보이지 않으니 설정 → 백업으로 옮기세요.</p>
     </section>
 
     <!-- ===== 주문 처리 ===== -->
@@ -81,12 +81,14 @@
           <div class="kpi"><span class="label">확인서 보냄</span><span class="value" id="k-sent"></span><span class="note" id="k-sent-note"></span></div>
           <div class="kpi"><span class="label">바로 들어간 줄</span><span class="value" id="k-auto"></span><span class="note" id="k-auto-note"></span></div>
         </div>
+        <div id="missing-clients" class="banner warn" hidden></div>
         <p id="eval" class="eval" hidden></p>
 
         <div class="toolbar">
           <button type="button" class="primary" id="dl-xlsx">배송표 엑셀</button>
           <button type="button" id="print-picking">피킹리스트 인쇄</button>
           <button type="button" id="print-detail">배송표 인쇄</button>
+          <button type="button" id="dl-tpl" hidden>내 서식 배송표</button>
           <button type="button" id="dl-erp">이카운트 업로드 엑셀</button>
           <button type="button" id="copy-erp">이카운트 붙여넣기용 복사</button>
           <button type="button" id="dl-csv">확인할 줄 CSV</button>
@@ -143,7 +145,7 @@
     <!-- ===== 기록 ===== -->
     <section id="view-history" hidden>
       <section class="card">
-        <div class="card-head"><h2>기록</h2><span class="targets">참고: 사업 목표 — 바로 들어간 줄 85% 이상 · 확인할 줄 15% 이하 · 입력 시간 50% 단축</span></div>
+        <div class="card-head"><h2>기록</h2></div>
         <div id="history-kpis"></div>
         <div id="history-table"></div>
       </section>
@@ -178,6 +180,17 @@
           <label class="check" style="grid-column: 1 / -1; display:flex; gap:8px; font-size:14px"><input type="checkbox" id="s-remember"> 이 브라우저에 키 저장 (공용 PC면 끄세요)</label>
           <p class="hint" style="grid-column: 1 / -1; margin:0">키는 이 브라우저에만 있고 백업 파일에는 들어가지 않습니다. 주문 메시지 원문이 Anthropic API로 전송되며, 비용은 키 소유자에게 청구됩니다.</p>
         </div>
+      </section>
+      <section class="card">
+        <h2>내 배송표 서식</h2>
+        <p class="hint">지금 쓰는 배송표·주문장 엑셀(빈 서식)을 그대로 올리면, 그 파일의 열 순서와 글꼴·테두리 그대로 채워서 내보냅니다. 머리글(거래처·품목·수량 …)이 있는 줄을 찾아 열을 자동으로 짝짓고, 틀리면 아래에서 고치세요.</p>
+        <div class="row" style="margin-top:8px">
+          <button type="button" id="s-tpl-upload">서식 엑셀 올리기</button>
+          <input type="file" id="s-tpl-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+          <button type="button" class="ghost" id="s-tpl-clear" hidden>서식 지우기</button>
+        </div>
+        <p class="hint" id="s-tpl-status"></p>
+        <div class="grid-2" id="s-tpl-map"></div>
       </section>
       <section class="card">
         <h2>이카운트 업로드</h2>

@@ -37,7 +37,7 @@ def build() -> str:
         "data": {
             "items": read("data/items.csv"),
             "history": read("data/history.json"),
-            "orders": read("input/orders.txt"),
+            "orders": read("input/orders_kakao.txt"),
             "expected": read("data/expected.json"),
             "defaultItems": read("data/items_default.csv"),
         },

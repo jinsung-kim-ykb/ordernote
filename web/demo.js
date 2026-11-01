@@ -17,6 +17,13 @@
   const rnd = (a, b) => a + Math.random() * (b - a);
   const wait = (ms) => new Promise((r) => setTimeout(r, (ms * rnd(0.85, 1.2)) / speed));
   const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const addDays = (iso, n) => { const [y, m, d] = iso.split("-").map(Number); const x = new Date(y, m - 1, d + n); return fmt(x); };
+  /** 샘플 카톡 대화의 날짜(YYYY년 M월 D일)를 base → target 만큼 옮겨 "오늘 받은 주문"처럼 보이게 한다. */
+  function shiftDates(text, baseIso, targetIso) {
+    const [by, bm, bd] = baseIso.split("-").map(Number);
+    const delta = Math.round((new Date(targetIso + "T00:00:00") - new Date(by, bm - 1, bd)) / 86400000);
+    return text.replace(/(\d{4})년 (\d{1,2})월 (\d{1,2})일/g, (_, y, m, d) => { const x = new Date(+y, +m - 1, +d + delta); return `${x.getFullYear()}년 ${x.getMonth() + 1}월 ${x.getDate()}일`; });
+  }
 
   if (mode === "restore") {
     const prev = localStorage.getItem(PREV);
@@ -29,8 +36,11 @@
 
   // ------------------------------------------------------------ 1. 3주치 기록이 쌓인 작업공간 만들기
   async function seed() {
-    const [items, history, orders] = await Promise.all(["data/items.csv", "data/history.json", "input/orders.txt"].map((p) => fetch(p).then((r) => r.text())));
-    seed.orders = orders;
+    const [items, history, orders, day2] = await Promise.all(["data/items.csv", "data/history.json", "input/orders_kakao.txt", "data/demo_day2.txt"].map((p) => fetch(p).then((r) => r.text())));
+    const todayIso = Store.today();
+    seed.orders = shiftDates(orders, "2026-10-17", todayIso);          // 1일차: 오늘 저녁에 받은 주문
+    seed.day2 = shiftDates(day2, "2026-10-18", addDays(todayIso, 1));   // 2일차: 내일 저녁
+    seed.day2Delivery = addDays(todayIso, 2);
     const ws = Store.loadSample(Store.blank(), { items, history, orders });
     ws.settings.sample = false;                     // 실제 유통사처럼 보이게 (샘플 배너·정답 배지 없음)
     ws.settings.유통사명 = "새벽들유통";
@@ -59,8 +69,19 @@
         처리초: Math.round(rnd(0.4, 1.2) * 100) / 100, 소요분: Math.round(48 - 26 * p + rnd(-4, 4)), 학습: learned, engine: "기본(규칙)", sample: false,
       };
     });
-    // 거래처: 주문 횟수·직전 주문일
-    clients.forEach((name, i) => { const c = ws.clients[name]; c.주문횟수 = days.length - (i % 3); c.직전주문일 = days[days.length - 1]; });
+    // 거래처: 주문 횟수·직전 주문일. 오늘 주문이 안 들어온 단골 둘을 더해 '안 온 단골' 알림이 보이게 한다
+    clients.forEach((name, i) => { const c = ws.clients[name]; c.주문횟수 = days.length - (i % 3); c.직전주문일 = days[days.length - 2]; });
+    for (const [name, n] of [["청솔김밥", 14], ["바다마루횟집", 9]]) { const c = Store.ensureClient(ws, name); c.주문횟수 = n; c.직전주문일 = days[days.length - 2]; }
+    // 내 배송표 서식: 유통사가 쓰던 엑셀을 올려 둔 상태
+    try {
+      await new Promise((res, rej) => { if (window.ExcelJS) return res(); const sc = document.createElement("script"); sc.src = "web/vendor/exceljs.min.js"; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+      const buf = await fetch("data/demo_template.xlsx").then((r) => r.arrayBuffer());
+      const wb = new window.ExcelJS.Workbook(); await wb.xlsx.load(buf);
+      const sh = wb.worksheets[0];
+      const rows = []; sh.eachRow({ includeEmpty: true }, (row, n) => { if (n <= 40) rows[n - 1] = row.values.slice(1).map((v) => (v && typeof v === "object" ? v.text ?? "" : v)); });
+      const t = Store.templateFromRows(rows, { name: "새벽들유통_배송표.xlsx", sheet: sh.name });
+      if (t) { const bytes = new Uint8Array(buf); let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); t.file = btoa(bin); ws.settings.template = Store.normalizeTemplate(t); }
+    } catch (e) { console.warn("데모 서식 준비 실패", e); }
     // 배운 표현: 날짜를 기록에 맞춰 흩뿌린다 (샘플 주문의 확인할 줄은 그대로 남도록 거기 안 나오는 표현만)
     const learn = [["V012", "청고추"], ["V001", "대파단"], ["V015", "깐마늘봉"], ["M001", "삼겹 생거"], ["M008", "차돌배기"], ["V003", "양파 망"], ["P001", "식용유 말통"], ["V007", "조선무우"], ["V009", "양배추통"], ["V019", "깻잎 상자"], ["M012", "계란판"], ["P010", "두부 판"]];
     let di = 0;
@@ -173,10 +194,25 @@
     const copies = [...document.querySelectorAll('[data-panel="confirm"] [data-copy]')].slice(0, 2);
     for (const b of copies) { await click(b, "확인서 복사 → 카톡에 붙여넣기"); await wait(700); }
     await click('[data-tab="picking"]', "피킹리스트"); await wait(1500);
+    if (!$("#dl-tpl").hidden) await click("#dl-tpl", "우리가 쓰던 배송표 서식 그대로 엑셀로");
+    await wait(800);
     await click("#confirm-day", "오늘 납품분 확정");
     await wait(1800);
     await click('#nav button[data-view="clients"]', "거래처 — 직전 주문이 갱신됨"); await wait(2200);
     await click('#nav button[data-view="history"]', "기록 — 3주간 지표"); await wait(3000);
+    // ---- 2일차: 어제 고른 표현은 이제 묻지 않는다
+    await click('#nav button[data-view="inbox"]', "다음 날 저녁"); await wait(600);
+    await click("#new-day", "새 날 시작"); await wait(500);
+    await click("#new-day", "새 날 시작");
+    await wait(800);
+    const dd = $("#delivery-date"); await moveTo(dd); dd.value = seed.day2Delivery; dd.dispatchEvent(new Event("change", { bubbles: true })); await wait(500);
+    step("2일차 카톡 주문 붙여넣기");
+    await pasteOrders(seed.day2);
+    await until(() => !$("#results").hidden && /^\d/.test($("#k-orders").textContent));
+    await wait(600);
+    await moveTo($("#k-pending-tile")); step("어제 배운 표현(고추·다리살·바지락·고춧가루 2근)은 바로 들어감"); await wait(2500);
+    if (!$("#missing-clients").hidden) { await moveTo($("#missing-clients")); step("아직 주문이 없는 단골 알림"); await wait(2500); }
+    await moveTo($("#k-auto")); await wait(1500);
     step("데모 끝 · H 안내 숨김");
   }
 

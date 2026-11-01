@@ -314,5 +314,42 @@ function memStorage() {
   const v = ON.validateExtracted({ lines: [{ 품목명_원문: "대파\u0007", 수량: 1e308, 납품일: "9999-99-99", 확신도: 0.95 }] }).lines[0];
   assert.strictEqual(v.수량, null); assert.strictEqual(v.납품일, null); assert.strictEqual(v.품목명_원문, "대파"); assert.ok(v.확신도 <= 0.3);
 
+  // --- 9. 카톡 내보내기 샘플 = 기본 형식 샘플과 같은 20건
+  {
+    const roles = { "새벽들유통": "me" };
+    const A = Kakao.toOrders(Kakao.parseMessages(read("input/orders.txt")).messages, { roles });
+    const B = Kakao.toOrders(Kakao.parseMessages(read("input/orders_kakao.txt")).messages, { roles });
+    const key = (o) => `${o.순번}|${o.거래처}|${o.수신시각.text}|${o.본문}`;
+    assert.strictEqual(B.length, 20);
+    assert.deepStrictEqual(B.map(key), A.map(key), "카톡 형식 샘플이 같은 주문을 만든다");
+    const D = Kakao.toOrders(Kakao.parseMessages(read("data/demo_day2.txt")).messages, { roles });
+    assert.strictEqual(D.length, 6);
+  }
+  // --- 10. 내 배송표 서식: 머리글 찾기·열 짝짓기·검증
+  {
+    const rows = [["새벽들유통 일일 배송표", "새벽들유통 일일 배송표", "새벽들유통 일일 배송표"], ["납품일:", "", "", "", "", "", "", "작성:", "주문담당"], [], ["번호", "납품일자", "거래처", "품목", "규격", "수량", "단위", "비고", "기사", "확인"], [1, "2026-10-01", "예시식당", "대파", "1단", 2, "단"]];
+    const t = Store.templateFromRows(rows, { name: "a.xlsx", sheet: "배송표" });
+    assert.strictEqual(t.headerRow, 4, "병합 제목·'납품일:' 줄을 건너뛰고 머리글 줄을 찾는다");
+    assert.deepStrictEqual(t.map, { 거래처명: 3, 품목명: 4, 납품일: 2, 규격: 5, 수량: 6, 단위: 7, 비고: 8, 순번: 1 });
+    assert.deepStrictEqual(Store.guessTemplateMap(["일자", "거래처코드", "거래처명", "품목코드", "품목명", "규격", "수량", "단가", "적요"]), { 거래처코드: 2, 품목코드: 4, 거래처명: 3, 품목명: 5, 납품일: 1, 규격: 6, 수량: 7, 비고: 9 });
+    assert.strictEqual(Store.templateFromRows([[1, 2, 3], ["a"]]), null, "머리글이 없으면 null");
+    const bad = Store.normalizeTemplate({ name: "<b>x</b>", sheet: "s", headerRow: 999, headers: ["거래처", "<script>", "수량"], map: { 거래처명: 1, 수량: 7, __proto__: { x: 1 }, 없는필드: 2 }, file: "not base64!!" });
+    assert.strictEqual(bad.headerRow, 100); assert.deepStrictEqual(bad.map, { 거래처명: 1 }); assert.strictEqual(bad.file, "", "잘못된 파일 문자열은 버린다");
+    assert.strictEqual(Store.normalizeTemplate({ headers: [] }), null);
+    const ws3 = Store.importJson(JSON.stringify({ items: [{ 품목코드: "X1", 품목명: "대파", 규격: "1단", 단위: "단" }], settings: { template: { name: "t.xlsx", sheet: "s", headerRow: 2, headers: ["거래처", "품목", "수량"], map: { 거래처명: 1, 품목명: 2, 수량: 3 }, file: "QUJD" } } }));
+    assert.strictEqual(ws3.settings.template.file, "QUJD", "백업을 거쳐도 서식이 남는다");
+  }
+  // --- 11. 안 온 단골: 최근 7일 안에 주문했고 2번 이상인 거래처 중 이번 배치에 없는 곳
+  {
+    const w = Store.blank();
+    Object.assign(Store.ensureClient(w, "단골"), { 주문횟수: 5, 직전주문일: "2026-10-30" });
+    Object.assign(Store.ensureClient(w, "오늘온집"), { 주문횟수: 5, 직전주문일: "2026-10-31" });
+    Object.assign(Store.ensureClient(w, "옛날집"), { 주문횟수: 9, 직전주문일: "2026-10-20" });
+    Object.assign(Store.ensureClient(w, "한번온집"), { 주문횟수: 1, 직전주문일: "2026-10-31" });
+    Object.assign(Store.ensureClient(w, "미래"), { 주문횟수: 3, 직전주문일: "2026-11-05" });
+    const miss = Store.missingClients(w, [{ 거래처: "오늘온집" }], "2026-11-01");
+    assert.deepStrictEqual(miss.map((m) => m.name), ["단골"]);
+    assert.deepStrictEqual(Store.missingClients(w, [], "2026-11-07").map((m) => m.name), ["미래", "오늘온집"], "월말을 넘겨도 날짜 차이가 맞다(8일 지난 단골은 빠짐)");
+  }
   console.log("store/kakao tests OK");
 })().catch((e) => { console.error(e); process.exit(1); });

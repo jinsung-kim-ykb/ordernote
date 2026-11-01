@@ -35,6 +35,7 @@
         warehouse: "",           // 이카운트 출하창고 코드
         onboarded: false,
         sample: false,           // 샘플 모드(통계에 섞지 않음)
+        template: null,          // 내 배송표 서식: {name, sheet, headerRow, headers[], map{필드:열번호}, file(base64 xlsx)}
       },
       clientAliases: {},         // 거래처명 → { 정규화된 표현: 품목코드 } (이 거래처에만 적용되는 별칭)
       lastBackupAt: null,
@@ -110,6 +111,7 @@
       autoBackup: s.autoBackup == null ? true : !!s.autoBackup, beforeMinutes: Math.max(0, num(s.beforeMinutes, 0)),
       confirmFooter: s.confirmFooter == null ? b.settings.confirmFooter : str(s.confirmFooter, 200), warehouse: str(s.warehouse, 20),
       onboarded: !!s.onboarded, sample: !!s.sample,
+      template: normalizeTemplate(s.template),
     };
     const items = (Array.isArray(ws.items) ? ws.items : []).map(normalizeItem).filter((i) => i.품목명);
     const codes = new Set(items.map((i) => i.품목코드));
@@ -170,6 +172,72 @@
       학습: (Array.isArray(i.학습) ? i.학습 : []).filter(isObj).map((l) => ({ 별칭: str(l.별칭, 30), 날짜: str(l.날짜, 10), 거래처: str(l.거래처, 60), ...(l.범위 ? { 범위: str(l.범위, 60) } : {}) })).filter((l) => l.별칭),
       ERP코드: str(i.ERP코드, 30),
     };
+  }
+
+  // ------------------------------------------------------------ 내 배송표 서식
+  /** 서식 열에 넣을 수 있는 값. 유통사가 쓰던 엑셀의 머리글과 짝을 짓는다. */
+  const TEMPLATE_FIELDS = [
+    { id: "순번", label: "번호(줄 순서)", guess: /^(no\.?|번호|순번|연번|seq)$/i },
+    { id: "납품일", label: "납품일", guess: /납품|배송일|일자|날짜|date/i },
+    { id: "거래처명", label: "거래처명", guess: /거래처|업체|상호|매장|식당|고객|client/i },
+    { id: "거래처코드", label: "거래처코드(ERP)", guess: /거래처\s*코드|업체\s*코드/i },
+    { id: "품목코드", label: "품목코드", guess: /품목\s*코드|상품\s*코드|코드/i },
+    { id: "품목명", label: "품목명", guess: /품목|품명|상품|제품|item/i },
+    { id: "규격", label: "규격", guess: /규격|spec/i },
+    { id: "수량", label: "수량", guess: /수량|qty|개수/i },
+    { id: "단위", label: "단위", guess: /단위|unit/i },
+    { id: "원문", label: "주문 표현(원문)", guess: /원문|주문\s*내용|요청|메시지/i },
+    { id: "비고", label: "비고(메모·확인 사유)", guess: /비고|메모|특이|참고|적요|note/i },
+    { id: "상태", label: "상태(정상/확인필요)", guess: /상태|status/i },
+  ];
+  function guessTemplateMap(headers) {
+    const map = {};
+    const used = new Set();
+    // 구체적인 것(거래처코드·품목코드)부터 맞춰 '코드' 같은 넓은 표현에 밀리지 않게 한다
+    const order = ["거래처코드", "품목코드", "거래처명", "품목명", "납품일", "규격", "수량", "단위", "원문", "비고", "상태", "순번"];
+    for (const id of order) {
+      const f = TEMPLATE_FIELDS.find((x) => x.id === id);
+      const col = headers.findIndex((h, i) => !used.has(i) && h && f.guess.test(String(h).replace(/\s+/g, " ").trim()));
+      if (col >= 0) { map[id] = col + 1; used.add(col); }
+    }
+    return map;
+  }
+  /** 엑셀 시트를 글자 표(rows[r][c])로 받아 머리글 줄을 찾고 열을 짝짓는다. */
+  function templateFromRows(rows, { name = "", sheet = "" } = {}) {
+    const text = (v) => (v == null ? "" : String(v).trim());
+    // 머리글 줄 = 앞 30줄 중 서로 다른 글자 칸이 가장 많은 줄(3개 이상). 병합된 제목 칸은 같은 글자가 반복되므로 서로 다른 값만 센다.
+    let headerRow = -1, best = 2;
+    for (let r = 0; r < Math.min(rows.length, 30); r++) {
+      const cells = (rows[r] || []).map(text);
+      const distinct = new Set(cells.filter((c) => c && !/^[\d.,-]+$/.test(c))).size;
+      if (distinct > best) { best = distinct; headerRow = r; }
+    }
+    if (headerRow < 0) return null;
+    const headers = (rows[headerRow] || []).map((v) => text(v).slice(0, 60));
+    while (headers.length && !headers[headers.length - 1]) headers.pop();
+    return { name: str(name, 80), sheet: str(sheet, 60), headerRow: headerRow + 1, headers: headers.slice(0, 100), map: guessTemplateMap(headers), file: "" };
+  }
+  function normalizeTemplate(t) {
+    if (!isObj(t) || !Array.isArray(t.headers) || !t.headers.length) return null;
+    const headers = t.headers.slice(0, 100).map((h) => str(h, 60));
+    const map = {};
+    if (isObj(t.map)) for (const f of TEMPLATE_FIELDS) { const v = num(t.map[f.id], 0); if (v >= 1 && v <= headers.length) map[f.id] = Math.floor(v); }
+    const file = typeof t.file === "string" && t.file.length <= 2000000 && /^[A-Za-z0-9+/=]*$/.test(t.file) ? t.file : "";
+    return { name: str(t.name, 80), sheet: str(t.sheet, 60), headerRow: Math.max(1, Math.min(100, Math.floor(num(t.headerRow, 1)))), headers, map, file };
+  }
+
+  /** 오늘 아직 주문이 안 들어온 단골: 최근 7일 안에 주문했고 2번 이상 주문한 거래처 중 이번 배치에 없는 곳. */
+  function missingClients(ws, orders, date) {
+    const seen = new Set((orders || []).map((o) => o.거래처));
+    const ref = validDate(date) || today();
+    const refMs = new Date(`${ref}T00:00:00`).getTime();
+    const out = [];
+    for (const [name, c] of Object.entries(ws.clients)) {
+      if (seen.has(name) || !c.직전주문일 || (c.주문횟수 || 0) < 2) continue;
+      const diff = (refMs - new Date(`${c.직전주문일}T00:00:00`).getTime()) / 86400000;
+      if (diff >= 0 && diff <= 7) out.push({ name, 직전주문일: c.직전주문일, 주문횟수: c.주문횟수 });
+    }
+    return out.sort((a, b) => (a.직전주문일 < b.직전주문일 ? 1 : a.직전주문일 > b.직전주문일 ? -1 : a.name.localeCompare(b.name, "ko")));
   }
 
   function normalizeOrderMap(o, codes) {
@@ -488,6 +556,7 @@
     KEY, VERSION, blank, blankSession, load, save, migrate, exportJson, importJson,
     itemsCsv, importItemsCsv, addItem, removeItem, normalizeItem, findItemByName, learnAlias, forgetAlias, learnConversion,
     clientNameFor, ensureClient, renameClient, history, confirmDay, newDay, loadSample, leaveSample, loadDefaultItems, stats, today, readItemsCsv, validDate,
+    TEMPLATE_FIELDS, guessTemplateMap, templateFromRows, normalizeTemplate, missingClients,
   };
   root.OrderNoteStore = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
