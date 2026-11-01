@@ -403,7 +403,7 @@ function renderMissingClients(res) {
   const miss = Store.missingClients(state.ws, res.orders, ref);
   el.hidden = !miss.length;
   if (!miss.length) return;
-  const names = miss.slice(0, 6).map((m) => `${esc(m.name)} <span class="muted">(${esc(labelDate(m.직전주문일))} 납품까지 주문)</span>`).join(", ");
+  const names = miss.slice(0, 6).map((m) => `${esc(m.name)} <span class="muted">(직전 주문 ${esc(labelDate(m.직전주문일))})</span>`).join(", ");
   el.innerHTML = `<span><strong>아직 주문이 없는 단골 ${miss.length}곳</strong> — ${names}${miss.length > 6 ? " 등" : ""}. 마감 전에 한 번 확인해 보세요.</span>`;
 }
 

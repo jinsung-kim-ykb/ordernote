@@ -22,7 +22,11 @@
   function shiftDates(text, baseIso, targetIso) {
     const [by, bm, bd] = baseIso.split("-").map(Number);
     const delta = Math.round((new Date(targetIso + "T00:00:00") - new Date(by, bm - 1, bd)) / 86400000);
-    return text.replace(/(\d{4})년 (\d{1,2})월 (\d{1,2})일/g, (_, y, m, d) => { const x = new Date(+y, +m - 1, +d + delta); return `${x.getFullYear()}년 ${x.getMonth() + 1}월 ${x.getDate()}일`; });
+    const now = new Date();
+    const saved = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${now.getHours() < 12 ? "오전" : "오후"} ${now.getHours() % 12 || 12}:${String(now.getMinutes()).padStart(2, "0")}`;
+    return text
+      .replace(/(\d{4})년 (\d{1,2})월 (\d{1,2})일/g, (_, y, m, d) => { const x = new Date(+y, +m - 1, +d + delta); return `${x.getFullYear()}년 ${x.getMonth() + 1}월 ${x.getDate()}일`; })
+      .replace(/^(저장한 날짜 : ).*$/gm, `$1${saved}`);   // 내보낸 시각은 '지금'
   }
 
   if (mode === "restore") {
@@ -153,7 +157,7 @@
   async function pasteOrders(text) {
     const el = $("#orders");
     await moveTo(el); el.focus();
-    const blocks = text.split(/\n(?=\[)/);               // 주문 단위로 '붙여넣기'되는 것처럼
+    const blocks = text.split(/\n(?=\d{4}년 \d{1,2}월 \d{1,2}일 (?:오전|오후) \d{1,2}:\d{2}, |\[|[^\n]+ 님과 카카오톡 대화\n)/);   // 메시지·방 단위로 '붙여넣기'되는 것처럼
     el.value = "";
     for (const b of blocks) { if (stopped) throw new Error("stopped"); el.value += (el.value ? "\n" : "") + b; el.dispatchEvent(new Event("input", { bubbles: true })); el.scrollTop = el.scrollHeight; await wait(140); }
     el.dispatchEvent(new ClipboardEvent("paste", { bubbles: true }));
@@ -204,6 +208,7 @@
     await click('#nav button[data-view="inbox"]', "다음 날 저녁"); await wait(600);
     await click("#new-day", "새 날 시작"); await wait(500);
     await click("#new-day", "새 날 시작");
+    for (let i = 0; i < 3 && !$("#results").hidden; i++) { await wait(300); $("#new-day").click(); }   // 아주 느린 속도에서 5초 확인 창이 지나도 새 날이 열리게
     await wait(800);
     const dd = $("#delivery-date"); await moveTo(dd); dd.value = seed.day2Delivery; dd.dispatchEvent(new Event("change", { bubbles: true })); await wait(500);
     step("2일차 카톡 주문 붙여넣기");
