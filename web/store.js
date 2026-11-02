@@ -231,18 +231,35 @@
     return { name: str(t.name, 80), sheet: str(t.sheet, 60), headerRow: Math.max(1, Math.min(100, Math.floor(num(t.headerRow, 1)))), headers, map, file };
   }
 
-  /** 오늘 아직 주문이 안 들어온 단골: 최근 7일 안에 주문했고 2번 이상 주문한 거래처 중 이번 배치에 없는 곳. */
+  /** 오늘(ref 날짜) 아직 주문이 안 들어온 단골.
+   *  요일 기록이 충분히 쌓인 거래처(8회 이상)는 '이 요일에 2번 이상 주문한 곳'만 띄운다 — 주 1회 거래처를 매일 잘못 띄우지 않게.
+   *  아직 기록이 적은 거래처는 '최근 7일 안에 주문했고 2번 이상 주문한 곳'으로 본다. */
+  const WEEKDAY_MIN_TOTAL = 8;
   function missingClients(ws, orders, date) {
     const seen = new Set((orders || []).map((o) => o.거래처));
     const ref = validDate(date) || today();
-    const refMs = new Date(`${ref}T00:00:00`).getTime();
+    const refDate = new Date(`${ref}T00:00:00`);
+    const dow = refDate.getDay();
     const out = [];
     for (const [name, c] of Object.entries(ws.clients)) {
-      if (seen.has(name) || !c.직전주문일 || (c.주문횟수 || 0) < 2) continue;
-      const diff = Math.round((refMs - new Date(`${c.직전주문일}T00:00:00`).getTime()) / 86400000);   // 서머타임 지역에서도 날짜 차이가 정수
-      if (diff >= 0 && diff <= 7) out.push({ name, 직전주문일: c.직전주문일, 주문횟수: c.주문횟수 });
+      if (seen.has(name)) continue;
+      const wk = c.주문요일 || {};
+      const total = Object.values(wk).reduce((a, b) => a + b, 0);
+      if (total >= WEEKDAY_MIN_TOTAL) {
+        if ((wk[dow] || 0) >= 2) out.push({ name, 직전주문일: c.직전주문일 || "", 주문횟수: c.주문횟수 || 0, byWeekday: true, weekdayCount: wk[dow], total });
+        continue;
+      }
+      if (!c.직전주문일 || (c.주문횟수 || 0) < 2) continue;
+      const diff = Math.round((refDate.getTime() - new Date(`${c.직전주문일}T00:00:00`).getTime()) / 86400000);   // 서머타임 지역에서도 날짜 차이가 정수
+      if (diff >= 0 && diff <= 7) out.push({ name, 직전주문일: c.직전주문일, 주문횟수: c.주문횟수 || 0, byWeekday: false });
     }
-    return out.sort((a, b) => (a.직전주문일 < b.직전주문일 ? 1 : a.직전주문일 > b.직전주문일 ? -1 : a.name.localeCompare(b.name, "ko")));
+    return out.sort((a, b) => (a.byWeekday !== b.byWeekday ? (a.byWeekday ? -1 : 1) : a.직전주문일 !== b.직전주문일 ? (a.직전주문일 < b.직전주문일 ? 1 : -1) : a.name.localeCompare(b.name, "ko")));
+  }
+
+  function normalizeWeekdays(w) {
+    const out = {};
+    if (isObj(w)) for (let d = 0; d <= 6; d++) { const v = Math.floor(num(w[d], 0)); if (v > 0) out[d] = Math.min(v, 100000); }
+    return out;
   }
 
   function normalizeOrderMap(o, codes) {
@@ -258,6 +275,7 @@
       // 오늘 확정으로 덮어쓰기 전의 직전 주문. 확정한 날의 주문을 다시 읽을 때 "어제 거 그대로"가 오늘 주문 자신을 가리키지 않게 한다.
       ...(Object.keys(이전주문).length ? { 이전주문, 이전주문일: validDate(c.이전주문일) } : {}),
       주문횟수: Math.max(0, Math.floor(num(c.주문횟수))), 메모: str(c.메모, 200), ERP코드: str(c.ERP코드, 30),
+      주문요일: normalizeWeekdays(c.주문요일),   // 요일(0=일…6=토) → 그 요일에 주문한 횟수. '안 온 단골' 판단에 쓴다
     };
   }
 
@@ -484,7 +502,14 @@
       if (c.직전주문일 !== mainDate && Object.keys(c.직전주문 || {}).length) { c.이전주문 = c.직전주문; c.이전주문일 = c.직전주문일; } // 같은 날을 다시 확정하면 이전 것을 유지
       c.직전주문 = order;
       c.직전주문일 = mainDate;
-      if (!ws.session.countedClients.includes(name)) { c.주문횟수 = (c.주문횟수 || 0) + 1; ws.session.countedClients.push(name); }
+      if (!ws.session.countedClients.includes(name)) {
+        c.주문횟수 = (c.주문횟수 || 0) + 1;
+        ws.session.countedClients.push(name);
+        // 주문한 요일을 센다(그날 받은 메시지 날짜 기준, 같은 날 여러 건이면 한 번)
+        const dates = new Set(resolved.filter((r) => r.status === "정상" && r.order.거래처 === name).map((r) => String(r.order.수신시각.text || "").slice(0, 10)).filter(validDate));
+        if (!c.주문요일) c.주문요일 = {};
+        for (const d of dates) { const dow = new Date(`${d}T00:00:00`).getDay(); c.주문요일[dow] = (c.주문요일[dow] || 0) + 1; }
+      }
     }
     const learned = Object.values(ws.session.resolutions).filter((r) => r && r.learned).length;
     const startedAt = ws.session.startedAt ? new Date(ws.session.startedAt).getTime() : null;

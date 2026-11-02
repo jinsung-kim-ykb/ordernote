@@ -312,7 +312,7 @@ function parseInput() {
   const st = $("#parse-status");
   if (!text.trim()) { st.textContent = ""; $("#senders").innerHTML = ""; return; }
   const clients = new Set(state.orders.map((o) => o.거래처)).size;
-  let msg = `${Kakao.describeFormat(parsed.formats)} · 메시지 ${parsed.messages.length}개 → 주문 ${state.orders.length}건 · 거래처 ${clients}곳`;
+  let msg = `${Kakao.describeFormat(parsed.formats)}${parsed.rooms > 1 ? ` · 카톡 방 ${parsed.rooms}개를 한 번에` : ""} · 메시지 ${parsed.messages.length}개 → 주문 ${state.orders.length}건 · 거래처 ${clients}곳`;
   if (parsed.duplicates) msg += ` · 같은 메시지 ${parsed.duplicates}개는 한 번만`;
   if (parsed.formats.includes("copy-nodate")) msg += ` · 날짜가 없어 ${labelDate(ws.session.baseDate)}에 받은 것으로 봅니다`;
   if (parsed.formats.includes("plain")) msg += " · 형식 없는 줄은 '(발신자 없음)' 주문으로 묶었습니다";
@@ -403,8 +403,10 @@ function renderMissingClients(res) {
   const miss = Store.missingClients(state.ws, res.orders, ref);
   el.hidden = !miss.length;
   if (!miss.length) return;
-  const names = miss.slice(0, 6).map((m) => `${esc(m.name)} <span class="muted">(직전 주문 ${esc(labelDate(m.직전주문일))})</span>`).join(", ");
-  el.innerHTML = `<span><strong>아직 주문이 없는 단골 ${miss.length}곳</strong> — ${names}${miss.length > 6 ? " 등" : ""}. 마감 전에 한 번 확인해 보세요.</span>`;
+  const dowName = DAY_NAMES[new Date(`${ref}T00:00:00`).getDay()];
+  const names = miss.slice(0, 6).map((m) => `${esc(m.name)} <span class="muted">(${m.byWeekday ? `${esc(dowName)}요일마다 · ${esc(m.weekdayCount)}/${esc(Math.round(m.total / 7) || 1)}주` : `직전 주문 ${esc(labelDate(m.직전주문일))}`})</span>`).join(", ");
+  const head = miss.every((m) => m.byWeekday) ? `${esc(dowName)}요일에 늘 주문하던 단골 ${miss.length}곳이 아직 안 왔어요` : `아직 주문이 없는 단골 ${miss.length}곳`;
+  el.innerHTML = `<span><strong>${head}</strong> — ${names}${miss.length > 6 ? " 등" : ""}. 마감 전에 한 번 확인해 보세요.</span>`;
 }
 
 function renderTemplateButton() {

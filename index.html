@@ -41,12 +41,12 @@
       <div class="choice">
         <button type="button" id="ob-default"><strong>우리 주문 시작 (기본 식자재 사전 내장)</strong><span>채소·육류·수산·양념·공산품 200개 품목과 흔한 별칭이 들어 있습니다. 첫날은 확인할 줄이 많고, 고를수록 줄어듭니다.</span></button>
         <button type="button" id="ob-csv"><strong>내 품목 사전 CSV로 시작</strong><span>품목코드·품목명·규격·단위 열이 있는 CSV (이카운트 품목 내보내기 그대로도 됩니다).</span></button>
-        <button type="button" id="ob-sample"><strong>샘플로 둘러보기</strong><span>가상 식당 8곳의 카톡 대화 내보내기(주문 20건)로 흐름만 봅니다. 언제든 샘플을 지우고 시작할 수 있어요.</span></button>
+        <button type="button" id="ob-sample"><strong>샘플로 둘러보기</strong><span>가상 식당 8곳의 PC 카톡 대화 내보내기(주문 20건)로 흐름만 봅니다. 언제든 샘플을 지우고 시작할 수 있어요.</span></button>
         <button type="button" id="ob-import"><strong>백업 파일 가져오기</strong><span>다른 PC나 폰의 오더노트에서 저장한 백업 파일</span></button>
       </div>
       <input type="file" id="ob-csv-file" accept=".csv,text/csv" hidden>
       <input type="file" id="ob-import-file" accept=".json,application/json" hidden>
-      <p class="hint">거래처·주문 데이터는 <strong>이 컴퓨터의 이 브라우저</strong>에만 있고 어디에도 올라가지 않습니다. 다른 PC나 폰에서는 보이지 않으니 설정 → 백업으로 옮기세요.</p>
+      <p class="hint"><strong>거래처 정보는 유통사의 것입니다.</strong> 다른 유통사나 매칭 서비스에 쓰지 않습니다. 이 화면의 데이터는 이 브라우저에 저장되니 다른 PC나 폰에서 쓰려면 설정 → 백업으로 옮기세요.</p>
     </section>
 
     <!-- ===== 주문 처리 ===== -->
@@ -60,7 +60,7 @@
           </div>
         </div>
         <textarea id="orders" spellcheck="false" aria-describedby="fmt-hint" placeholder="카카오톡 대화방 → 메뉴 → 대화 내보내기(텍스트)로 저장한 내용, 또는 PC 카톡에서 메시지를 선택해 복사한 내용을 여기에 붙여넣으세요. 방마다 이어서 붙여넣어도 됩니다."></textarea>
-        <p class="hint" id="fmt-hint">카톡 안드로이드·아이폰·PC·맥 내보내기와 메시지 복사본을 자동으로 알아봅니다. 직접 적을 때는 한 줄에 하나씩 <code>[거래처명] [2026-10-21 20:12] 대파 2단</code>. 같은 방을 다시 붙여넣어도 중복 메시지는 빠집니다.</p>
+        <p class="hint" id="fmt-hint">PC 카톡 내보내기·드래그 복사본, 폰(안드로이드·아이폰) 내보내기, 맥 CSV를 자동으로 알아봅니다. <strong>여러 방을 이어 붙여넣으면 한 번에</strong> 읽고, 같은 방을 다시 붙여넣어도 중복 메시지는 빠집니다. 직접 적을 때는 한 줄에 하나씩 <code>[거래처명] [2026-10-21 20:12] 대파 2단</code>.</p>
         <p class="hint" id="parse-status" aria-live="polite"></p>
         <div class="senders" id="senders"></div>
         <div class="engine-line">

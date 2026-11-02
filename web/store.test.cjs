@@ -322,6 +322,8 @@ function memStorage() {
     const key = (o) => `${o.순번}|${o.거래처}|${o.수신시각.text}|${o.본문}`;
     assert.strictEqual(B.length, 20);
     assert.deepStrictEqual(B.map(key), A.map(key), "카톡 형식 샘플이 같은 주문을 만든다");
+    const P = Kakao.parseMessages(read("input/orders_kakao.txt"));
+    assert.deepStrictEqual(P.formats, ["pc"]); assert.strictEqual(P.rooms, 8, "샘플은 PC 내보내기, 방 8개");
     const D = Kakao.toOrders(Kakao.parseMessages(read("data/demo_day2.txt")).messages, { roles });
     assert.strictEqual(D.length, 6);
   }
@@ -352,7 +354,21 @@ function memStorage() {
     Object.assign(Store.ensureClient(w, "미래"), { 주문횟수: 3, 직전주문일: "2026-11-05" });
     const miss = Store.missingClients(w, [{ 거래처: "오늘온집" }], "2026-11-01");
     assert.deepStrictEqual(miss.map((m) => m.name), ["단골"]);
-    assert.deepStrictEqual(Store.missingClients(w, [], "2026-11-07").map((m) => m.name), ["미래", "오늘온집"], "월말을 넘겨도 날짜 차이가 맞다(8일 지난 단골은 빠짐)");
+    // 요일 기록이 쌓인 거래처는 '이 요일에 보통 주문하는 곳'만: 월요일(1)마다 주문하던 곳은 월요일에만, 주 1회 거래처를 매일 띄우지 않는다
+    Object.assign(Store.ensureClient(w, "월요집"), { 주문횟수: 10, 직전주문일: "2026-10-26", 주문요일: { 1: 9 } });
+    Object.assign(Store.ensureClient(w, "주말집"), { 주문횟수: 10, 직전주문일: "2026-10-31", 주문요일: { 6: 5, 0: 4 } });
+    assert.deepStrictEqual(Store.missingClients(w, [], "2026-11-02").map((m) => m.name), ["월요집", "오늘온집", "단골"], "월요일: 월요집은 요일 기준으로, 나머지는 7일 기준");
+    assert.ok(!Store.missingClients(w, [], "2026-11-03").some((m) => m.name === "월요집" || m.name === "주말집"), "화요일: 월요집·주말집은 띄우지 않는다");
+    assert.ok(Store.missingClients(w, [], "2026-11-07").some((m) => m.name === "주말집" && m.byWeekday), "토요일: 주말집");
+    // 확정하면 요일이 쌓이고, 같은 날 다시 확정해도 두 번 세지 않는다
+    const roles = { "새벽들유통": "me" };
+    const w2 = Store.loadSample(Store.blank(), sample);
+    const cat2 = new ON.Catalog(w2.items, w2.clientAliases);
+    const r2 = await ON.runOrders({ orders: Kakao.toOrders(Kakao.parseMessages(read("input/orders_kakao.txt")).messages, { roles }), catalog: cat2, history: Store.history(w2), extractor: new ON.RuleExtractor(cat2, Store.history(w2)) });
+    Store.confirmDay(w2, r2); Store.confirmDay(w2, r2);
+    assert.deepStrictEqual(w2.clients["가람식당"].주문요일, { [new Date("2026-10-17T00:00:00").getDay()]: 1 });
+    assert.deepStrictEqual(Store.importJson(Store.exportJson(w2)).clients["가람식당"].주문요일, w2.clients["가람식당"].주문요일, "백업을 거쳐도 요일 기록이 남는다");
+    assert.deepStrictEqual(Store.missingClients(w, [], "2026-11-07").map((m) => m.name), ["주말집", "미래", "오늘온집"], "토요일: 요일 단골이 먼저, 월말을 넘겨도 날짜 차이가 맞다(8일 지난 단골은 빠짐)");
   }
   console.log("store/kakao tests OK");
 })().catch((e) => { console.error(e); process.exit(1); });
